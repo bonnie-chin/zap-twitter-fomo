@@ -1,0 +1,327 @@
+/* =========================================================================
+   Quietfeed — social-free X/Twitter
+   All rules are gated on classes that content.js toggles on <html>:
+     .zf-enabled          master switch
+     .zf-hide-metrics     like / repost / reply / view / bookmark counts + bar
+     .zf-hide-identity    avatars, display names, @handles, timestamps, badges
+     .zf-hide-text        post body text
+     .zf-hide-chrome      left nav + right sidebar (DM FAB always kept)
+     .zf-mode-minimal / .zf-mode-pinterest / .zf-mode-focus
+   ========================================================================= */
+
+/* ------------------------------------------------------------------ *
+ * 1. METRICS  — the engagement bar and any stray counts
+ * ------------------------------------------------------------------ */
+/* The action bar under each tweet (reply / repost / like / view / bookmark). */
+.zf-enabled.zf-hide-metrics article [role="group"]:has(
+  [data-testid="reply"],
+  [data-testid="retweet"],
+  [data-testid="unretweet"],
+  [data-testid="like"],
+  [data-testid="unlike"]
+) {
+  display: none !important;
+}
+
+/* View-count links / analytics that sometimes render outside the bar. */
+.zf-enabled.zf-hide-metrics a[href$="/analytics"],
+.zf-enabled.zf-hide-metrics [data-testid="app-text-transition-container"]:has(+ * [data-testid="like"]) {
+  display: none !important;
+}
+
+/* Follower / following counts on any profile header that leaks through. */
+.zf-enabled.zf-hide-metrics a[href$="/verified_followers"],
+.zf-enabled.zf-hide-metrics a[href$="/followers"],
+.zf-enabled.zf-hide-metrics a[href$="/following"] {
+  pointer-events: none !important;
+  color: transparent !important;
+}
+
+/* ------------------------------------------------------------------ *
+ * 2. IDENTITY — who posted it and when
+ * ------------------------------------------------------------------ */
+.zf-enabled.zf-hide-identity [data-testid="Tweet-User-Avatar"],
+.zf-enabled.zf-hide-identity [data-testid="User-Avatar-Container-unknown"],
+.zf-enabled.zf-hide-identity div[data-testid^="UserAvatar-Container-"] {
+  visibility: hidden !important;
+}
+
+/* Name + @handle + timestamp block. */
+.zf-enabled.zf-hide-identity article [data-testid="User-Name"] {
+  visibility: hidden !important;
+}
+
+/* Any lone timestamp. */
+.zf-enabled.zf-hide-identity article time {
+  visibility: hidden !important;
+}
+
+/* Social-context line ("X reposted", "Y liked", "Promoted", "Following"). */
+.zf-enabled.zf-hide-identity article [data-testid="socialContext"] {
+  visibility: hidden !important;
+}
+
+/* Collapse the empty gutter the hidden avatar leaves behind so text lines up. */
+.zf-enabled.zf-hide-identity article [data-testid="Tweet-User-Avatar"] {
+  width: 0 !important;
+  min-width: 0 !important;
+  margin: 0 !important;
+}
+
+/* ------------------------------------------------------------------ *
+ * 3. TEXT — the words of the post (optional toggle)
+ * ------------------------------------------------------------------ */
+.zf-enabled.zf-hide-text article [data-testid="tweetText"] {
+  display: none !important;
+}
+
+/* ------------------------------------------------------------------ *
+ * 4. CHROME — left nav + right sidebar, but KEEP the messages FAB
+ * ------------------------------------------------------------------ */
+.zf-enabled.zf-hide-chrome header[role="banner"] {
+  display: none !important;
+}
+.zf-enabled.zf-hide-chrome [data-testid="sidebarColumn"] {
+  display: none !important;
+}
+/* Trends / who-to-follow modules that inject into the feed. */
+.zf-enabled.zf-hide-chrome [data-testid="primaryColumn"] aside,
+.zf-enabled.zf-hide-chrome [data-testid="primaryColumn"] [data-testid="UserCell"] {
+  display: none !important;
+}
+
+/* Re-center the primary column now that the rails are gone. */
+.zf-enabled.zf-hide-chrome [data-testid="primaryColumn"] {
+  margin-left: auto !important;
+  margin-right: auto !important;
+}
+
+/* Always keep the messages dock / FAB visible and clickable, above overlays. */
+.zf-enabled [data-testid="DMDrawer"],
+.zf-enabled [aria-label="Messages"][role="button"],
+.zf-enabled div[data-testid="DMDrawerHeader"] {
+  z-index: 2147483647 !important;
+}
+
+/* ------------------------------------------------------------------ *
+ * 5. OVERLAY MODES (pinterest / focus)
+ *    content.js paints its own layer; we just hide the native scroller
+ *    visually (but keep it in the DOM so X keeps loading more).
+ * ------------------------------------------------------------------ */
+.zf-overlay-active [data-testid="primaryColumn"] > div > div:last-child,
+.zf-overlay-active [data-testid="primaryColumn"] section {
+  visibility: hidden !important;
+}
+
+#zf-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  background: #0b0b0d;
+  color: #e7e7ea;
+  overflow-y: auto;
+  overflow-x: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Slim toolbar */
+#zf-bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  background: rgba(11, 11, 13, 0.82);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+#zf-bar .zf-brand {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  margin-right: auto;
+  opacity: 0.85;
+}
+#zf-bar button {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: transparent;
+  color: #cfcfd4;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+#zf-bar button:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+#zf-bar button.zf-active {
+  background: #e7e7ea;
+  color: #0b0b0d;
+  border-color: #e7e7ea;
+  font-weight: 600;
+}
+#zf-bar button.zf-off {
+  border-color: rgba(255, 120, 120, 0.4);
+  color: #ff9d9d;
+}
+
+#zf-empty {
+  text-align: center;
+  opacity: 0.5;
+  padding: 80px 20px;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+/* ---- Pinterest (masonry) ---- */
+.zf-mode-pinterest #zf-stage {
+  column-width: 260px;
+  column-gap: 18px;
+  padding: 22px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+.zf-card {
+  break-inside: avoid;
+  margin: 0 0 18px;
+  background: #161619;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 16px;
+  overflow: hidden;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+.zf-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+}
+.zf-card img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.zf-card .zf-gallery img + img {
+  border-top: 1px solid rgba(0, 0, 0, 0.5);
+}
+.zf-card .zf-text {
+  padding: 12px 14px 14px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: #c7c7cd;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.zf-card.zf-textonly {
+  background: #1a1a1f;
+}
+.zf-card.zf-textonly .zf-text {
+  font-size: 15px;
+  color: #dcdce2;
+  padding: 20px;
+}
+.zf-badge {
+  position: relative;
+}
+.zf-badge[data-count]::after {
+  content: attr(data-count);
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  backdrop-filter: blur(4px);
+}
+
+/* ---- Focus (one at a time) ---- */
+.zf-mode-focus #zf-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(100vh - 58px);
+  padding: 30px 20px 60px;
+}
+.zf-focus-card {
+  max-width: min(760px, 92vw);
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+}
+.zf-focus-card .zf-gallery {
+  width: 100%;
+  border-radius: 18px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+.zf-focus-card img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 74vh;
+  object-fit: contain;
+  background: #000;
+}
+.zf-focus-card .zf-text {
+  max-width: 620px;
+  text-align: center;
+  font-size: 16px;
+  line-height: 1.6;
+  color: #d4d4da;
+  white-space: pre-wrap;
+}
+.zf-focus-nav {
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: rgba(22, 22, 25, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 10px 16px;
+  border-radius: 999px;
+  backdrop-filter: blur(10px);
+  z-index: 3;
+}
+.zf-focus-nav button {
+  appearance: none;
+  border: none;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  font-size: 18px;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+.zf-focus-nav button:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+.zf-focus-nav button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.zf-focus-nav .zf-count {
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  opacity: 0.7;
+  min-width: 56px;
+  text-align: center;
+}
+
+#zf-sentinel {
+  height: 1px;
+  width: 100%;
+}

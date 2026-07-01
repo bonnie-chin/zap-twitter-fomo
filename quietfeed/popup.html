@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="popup.css" />
+    <title>Quietfeed</title>
+  </head>
+  <body>
+    <header>
+      <div class="title">
+        <span class="dot"></span>
+        Quietfeed
+      </div>
+      <p class="tagline">Just the work. None of the noise.</p>
+    </header>
+
+    <!-- Master switch -->
+    <label class="row master" for="enabled">
+      <div class="row-label">
+        <strong>Quietfeed is on</strong>
+        <small id="masterHint">All changes active</small>
+      </div>
+      <span class="switch">
+        <input type="checkbox" id="enabled" />
+        <span class="slider"></span>
+      </span>
+    </label>
+
+    <div id="controls">
+      <section>
+        <h2>What to hide</h2>
+
+        <label class="row" for="hideMetrics">
+          <div class="row-label">
+            <strong>Engagement counts</strong>
+            <small>Likes, reposts, replies, views, bookmarks</small>
+          </div>
+          <span class="switch">
+            <input type="checkbox" id="hideMetrics" />
+            <span class="slider"></span>
+          </span>
+        </label>
+
+        <label class="row" for="hideIdentity">
+          <div class="row-label">
+            <strong>Identity</strong>
+            <small>Avatars, names, @handles, timestamps</small>
+          </div>
+          <span class="switch">
+            <input type="checkbox" id="hideIdentity" />
+            <span class="slider"></span>
+          </span>
+        </label>
+
+        <label class="row" for="hideText">
+          <div class="row-label">
+            <strong>Post text</strong>
+            <small>Show only the visual work, no words</small>
+          </div>
+          <span class="switch">
+            <input type="checkbox" id="hideText" />
+            <span class="slider"></span>
+          </span>
+        </label>
+
+        <label class="row" for="hideChrome">
+          <div class="row-label">
+            <strong>Side panels</strong>
+            <small>Left nav + right sidebar (messages kept)</small>
+          </div>
+          <span class="switch">
+            <input type="checkbox" id="hideChrome" />
+            <span class="slider"></span>
+          </span>
+        </label>
+      </section>
+
+      <section>
+        <h2>View</h2>
+        <div class="segmented" id="layout">
+          <button data-layout="minimal">
+            <span class="seg-title">Minimal</span>
+            <span class="seg-desc">Strip the feed clean</span>
+          </button>
+          <button data-layout="pinterest">
+            <span class="seg-title">Pinterest</span>
+            <span class="seg-desc">Cards &amp; galleries</span>
+          </button>
+          <button data-layout="focus">
+            <span class="seg-title">Focus</span>
+            <span class="seg-desc">One piece at a time</span>
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <footer>
+      <button id="reset" class="link">Reset to defaults</button>
+    </footer>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
