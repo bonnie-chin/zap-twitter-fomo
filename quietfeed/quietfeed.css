@@ -168,6 +168,14 @@
   border-color: rgba(255, 120, 120, 0.4);
   color: #ff9d9d;
 }
+#zf-bar button.zf-more {
+  border-color: rgba(120, 170, 255, 0.4);
+  color: #9dc0ff;
+}
+#zf-bar button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
 
 #zf-empty {
   text-align: center;

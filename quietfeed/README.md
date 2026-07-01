@@ -61,9 +61,13 @@ profile.
 - Built against X's current DOM (`data-testid` hooks). If X ships a big redesign,
   a selector or two in `quietfeed.css` / `content.js` may need updating.
 - **Pinterest / Focus are the experimental explorations.** Because X virtualizes
-  and lazy-loads, the overlay harvests media progressively as it pulls more of
-  the feed in the background; the first few cards may take a beat to appear, and
-  it favors posts that contain images. Minimal is the sturdiest everyday mode.
+  and lazy-loads, the overlay can't rely on your scroll wheel (that scrolls the
+  overlay, not X). Instead it *drives* X's own scroll container to the bottom in
+  the background to force the next page to load, harvesting media as tweets
+  render. It front-loads a batch on entry to fill the grid, tops up as you near
+  the end, and there's a **Load more** button in the overlay toolbar if you ever
+  want to pull more by hand. It favors posts that contain images. Minimal is the
+  sturdiest everyday mode.
 - Nothing leaves your browser. No network calls, no analytics, no accounts — the
   only permission requested is `storage` (to remember your toggles).
 

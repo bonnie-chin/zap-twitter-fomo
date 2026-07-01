@@ -107,6 +107,23 @@
     return { id, imgs, text };
   }
 
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // Find the element X actually scrolls. Usually the document scrolling
+  // element, but walk up from the timeline in case it's a nested scroller.
+  function getScroller() {
+    const col = document.querySelector('[data-testid="primaryColumn"]');
+    let node = col ? col.parentElement : null;
+    while (node && node !== document.body && node !== document.documentElement) {
+      const oy = getComputedStyle(node).overflowY;
+      if ((oy === "auto" || oy === "scroll") && node.scrollHeight > node.clientHeight + 40) {
+        return node;
+      }
+      node = node.parentElement;
+    }
+    return document.scrollingElement || document.documentElement;
+  }
+
   // ---------------------------------------------------------------------
   // Overlay controller
   // ---------------------------------------------------------------------
@@ -143,11 +160,14 @@
       const bText = mk(cfg.hideText ? "Show text" : "Hide text", () => {
         setCfg({ hideText: !cfg.hideText });
       });
+      const bMore = mk("Load more", () => pumpUntil(cards.length + 20));
+      bMore.className = "zf-more";
       const bOff = mk("Turn off", () => setCfg({ enabled: false }), "zf-off");
       bar._bText = bText;
       bar._bPin = bPin;
       bar._bFoc = bFoc;
-      bar.append(bMin, bPin, bFoc, bText, bOff);
+      bar._bMore = bMore;
+      bar.append(bMin, bPin, bFoc, bText, bMore, bOff);
 
       stage = document.createElement("div");
       stage.id = "zf-stage";
@@ -263,7 +283,7 @@
 
     function go(delta) {
       focusIndex += delta;
-      if (focusIndex >= cards.length - 2) loadMore(); // prefetch as we near the end
+      if (focusIndex >= cards.length - 3) pumpUntil(focusIndex + 10); // prefetch near the end
       renderFocus();
       el.scrollTo({ top: 0 });
     }
@@ -288,23 +308,63 @@
     }
 
     // ---- keep the (hidden) native feed loading more ----
-    function loadMore() {
-      if (loading) return;
-      loading = true;
-      let steps = 0;
-      const before = cards.length;
-      const tick = () => {
-        window.scrollBy(0, Math.round(window.innerHeight * 0.9));
-        scanAll();
-        steps++;
-        if (steps < 6 && cards.length - before < 8) {
-          setTimeout(tick, 350);
-        } else {
-          loading = false;
-        }
-      };
-      tick();
+    function setLoadingUI(on) {
+      if (!el) return;
+      const b = el._bar && el._bar._bMore;
+      if (b) {
+        b.textContent = on ? "Loading…" : "Load more";
+        b.disabled = on;
+      }
     }
+
+    // Drive X's real scroll container to the bottom, in a loop, until we've
+    // harvested `target` cards (or the feed stops growing). This is what
+    // actually makes X fetch the next page — a single scrollBy isn't enough.
+    let pumpTarget = 0;
+    async function pumpUntil(target, maxStagnant = 8) {
+      pumpTarget = Math.max(pumpTarget, target); // let a running pump absorb new asks
+      if (loading || !active) return;
+      loading = true;
+      setLoadingUI(true);
+      try {
+        const scroller = getScroller();
+        let stagnant = 0;
+        while (active && cards.length < pumpTarget && stagnant < maxStagnant) {
+          const beforeCards = cards.length;
+          const beforeH = scroller.scrollHeight;
+          const beforeTop = scroller.scrollTop;
+
+          // Advance in big steps (not a teleport) so X's virtualizer actually
+          // renders the tweets we pass — otherwise they're never harvested.
+          // Reaching the bottom is what trips X's next-page fetch.
+          const step = Math.max(700, scroller.clientHeight * 2.5);
+          scroller.scrollTop = Math.min(scroller.scrollHeight, scroller.scrollTop + step);
+          window.dispatchEvent(new Event("scroll")); // poke window-scroll listeners too
+
+          await sleep(450);
+          scanAll();
+
+          const grew = cards.length > beforeCards || scroller.scrollHeight > beforeH + 20;
+          const moved = scroller.scrollTop > beforeTop + 8;
+          const atBottom =
+            scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 8;
+
+          if (grew || moved) {
+            stagnant = 0; // still making progress (new cards, taller feed, or scrolled)
+          } else if (atBottom) {
+            stagnant++; // parked at the bottom with nothing new — wait for a fetch
+            await sleep(450);
+          }
+        }
+      } finally {
+        loading = false;
+        setLoadingUI(false);
+      }
+    }
+
+    // Target sizes: fill the grid on entry, then top up as you browse.
+    const FILL = { pinterest: 30, focus: 8 };
+    const prefetch = () => pumpUntil(cards.length + 16);
 
     // ---------------------------------------------------------------------
     function enter() {
@@ -314,6 +374,7 @@
         if (cfg.layout === "pinterest") renderPinterestAll();
         else renderFocus();
         refreshBar();
+        pumpUntil(FILL[cfg.layout] || 12); // top up so the new view isn't sparse
         return;
       }
       active = true;
@@ -347,15 +408,15 @@
       observer.observe(document.body, { childList: true, subtree: true });
 
       io = new IntersectionObserver(
-        (entries) => entries.forEach((en) => en.isIntersecting && loadMore()),
-        { root: el, rootMargin: "600px" }
+        (entries) => entries.forEach((en) => en.isIntersecting && prefetch()),
+        { root: el, rootMargin: "800px" }
       );
       io.observe(sentinel);
 
       document.addEventListener("keydown", onKey, true);
       scanAll();
-      // If the feed isn't populated yet, gently pull a first batch.
-      setTimeout(() => { if (cards.length < 4) loadMore(); }, 600);
+      // Front-load a batch so the grid actually fills instead of sitting empty.
+      pumpUntil(FILL[cfg.layout] || 12);
     }
 
     function exit() {
