@@ -19,17 +19,26 @@ Everything is toggleable from the popup (click the toolbar icon):
 | Toggle | Effect |
 | --- | --- |
 | **Quietfeed is on** | Master switch. Off = X looks completely normal. |
-| **Engagement counts** | Hides the reply / repost / like / view / bookmark bar. |
+| **Engagement counts** | Hides all counts + the like/reply buttons. **Keeps repost & bookmark** so you can still save and share good work. |
 | **Identity** | Hides avatars, display names, @handles, and timestamps. |
 | **Post text** | Optional — hide the words too, so you only see the visual work. |
 | **Side panels** | Hides the left nav and the right sidebar (trends, who-to-follow). |
 
 The **messages FAB / drawer is always kept** and floats above everything, so you
-never lose your DMs.
+never lose your DMs. You can still **save (bookmark)** and **repost** any post in
+every view — in Minimal those buttons stay on the post; in Pinterest/Focus each
+card gets its own **Save** / **Repost** buttons.
+
+## The dock
+
+A small floating **dock** sits in the top-right corner in every mode. It has a
+segmented **Minimal / Pinterest / Focus** switch and a **Text: on/off** toggle,
+so you can change views and show/hide post text without opening the popup. In the
+Pinterest/Focus views it also gets a **Load more** button.
 
 ## Three explorations of the view
 
-Pick one from the popup (or the slim toolbar inside the overlay views):
+Pick one from the popup or the dock:
 
 1. **Minimal** — the feed you know, scrubbed clean. Information is stripped in
    place; layout and scrolling are untouched. Most reliable, closest to "normal

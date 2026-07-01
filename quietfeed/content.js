@@ -3,6 +3,7 @@
    - Applies body classes for the CSS-driven "minimal" view.
    - Harvests media/text from the virtualized native feed and repaints it
      into a clean overlay for "pinterest" and "focus" views.
+   - Floating dock (top-right) switches modes + toggles post text in ALL views.
    ========================================================================= */
 (() => {
   "use strict";
@@ -52,6 +53,13 @@
     }
   });
 
+  // Small helper so dock/card buttons can write settings (fires storage.onChanged).
+  function setCfg(patch) {
+    Object.assign(cfg, patch);
+    chrome.storage.sync.set(patch);
+    apply();
+  }
+
   // ---------------------------------------------------------------------
   // Apply state
   // ---------------------------------------------------------------------
@@ -67,11 +75,10 @@
     root.classList.toggle("zf-mode-focus", cfg.enabled && cfg.layout === "focus");
 
     const wantOverlay = cfg.enabled && (cfg.layout === "pinterest" || cfg.layout === "focus");
-    if (wantOverlay) {
-      Overlay.enter();
-    } else {
-      Overlay.exit();
-    }
+    if (wantOverlay) Overlay.enter();
+    else Overlay.exit();
+
+    Dock.update();
   }
 
   // ---------------------------------------------------------------------
@@ -79,7 +86,6 @@
   // ---------------------------------------------------------------------
   function upscale(url) {
     if (!url) return url;
-    // pbs.twimg.com media: bump the requested size up.
     return url.replace(/([?&]name=)[^&]+/, "$1large");
   }
 
@@ -98,19 +104,19 @@
       .map((img) => upscale(img.currentSrc || img.src))
       .filter((src) => src && src.includes("pbs.twimg.com/media"));
 
-    const textEl = article.querySelector('[data-testid="tweetText"]');
-    const text = textEl ? textEl.innerText.trim() : "";
+    const el = article.querySelector('[data-testid="tweetText"]');
+    const text = el ? el.innerText.trim() : "";
 
-    // Nothing to admire? (no image, and text is hidden or empty) -> skip.
-    if (imgs.length === 0 && (cfg.hideText || !text)) return null;
+    // We always capture text (even when hidden) so the toggle can reveal it
+    // later without needing to re-harvest. Skip only truly empty posts.
+    if (imgs.length === 0 && !text) return null;
 
     return { id, imgs, text };
   }
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-  // Find the element X actually scrolls. Usually the document scrolling
-  // element, but walk up from the timeline in case it's a nested scroller.
+  // Find the element X actually scrolls.
   function getScroller() {
     const col = document.querySelector('[data-testid="primaryColumn"]');
     let node = col ? col.parentElement : null;
@@ -124,18 +130,48 @@
     return document.scrollingElement || document.documentElement;
   }
 
+  // Locate a still-rendered native <article> for a given tweet id.
+  function findArticle(id) {
+    const link = document.querySelector(`a[href*="/status/${id}"]`);
+    return link ? link.closest("article") : null;
+  }
+
+  // Save / repost a post by id. Works from any view.
+  function act(id, kind) {
+    if (kind === "repost") {
+      // Intent popup is reliable regardless of feed virtualization.
+      window.open(
+        `https://twitter.com/intent/retweet?tweet_id=${id}`,
+        "zf_repost",
+        "width=600,height=560,noopener"
+      );
+      return "opened";
+    }
+    if (kind === "bookmark") {
+      const art = findArticle(id);
+      const btn = art && art.querySelector('[data-testid="bookmark"], [data-testid="removeBookmark"]');
+      if (btn) {
+        btn.click();
+        return "saved";
+      }
+      // Not in the DOM anymore — open the post so it can be bookmarked there.
+      window.open(`https://x.com/i/web/status/${id}`, "_blank", "noopener");
+      return "opened";
+    }
+  }
+
   // ---------------------------------------------------------------------
-  // Overlay controller
+  // Overlay controller (pinterest / focus)
   // ---------------------------------------------------------------------
   const Overlay = (() => {
     let el = null; // #zf-overlay
     let stage = null; // #zf-stage
     let sentinel = null;
     let observer = null;
-    let io = null; // IntersectionObserver for infinite scroll
+    let io = null;
     let active = false;
 
-    const seen = new Set();
+    const byId = new Map(); // id -> card model
     const cards = []; // ordered card models
     let focusIndex = 0;
     let loading = false;
@@ -144,73 +180,44 @@
       el = document.createElement("div");
       el.id = "zf-overlay";
 
-      const bar = document.createElement("div");
-      bar.id = "zf-bar";
-      bar.innerHTML = `<span class="zf-brand">Quietfeed</span>`;
-      const mk = (label, fn, cls) => {
-        const b = document.createElement("button");
-        b.textContent = label;
-        if (cls) b.className = cls;
-        b.addEventListener("click", fn);
-        return b;
-      };
-      const bMin = mk("Minimal", () => setLayout("minimal"));
-      const bPin = mk("Pinterest", () => setLayout("pinterest"));
-      const bFoc = mk("Focus", () => setLayout("focus"));
-      const bText = mk(cfg.hideText ? "Show text" : "Hide text", () => {
-        setCfg({ hideText: !cfg.hideText });
-      });
-      const bMore = mk("Load more", () => pumpUntil(cards.length + 20));
-      bMore.className = "zf-more";
-      const bOff = mk("Turn off", () => setCfg({ enabled: false }), "zf-off");
-      bar._bText = bText;
-      bar._bPin = bPin;
-      bar._bFoc = bFoc;
-      bar._bMore = bMore;
-      bar.append(bMin, bPin, bFoc, bText, bMore, bOff);
-
       stage = document.createElement("div");
       stage.id = "zf-stage";
 
       sentinel = document.createElement("div");
       sentinel.id = "zf-sentinel";
 
-      el._bar = bar;
-      el.append(bar, stage, sentinel);
+      el.append(stage, sentinel);
       document.body.appendChild(el);
     }
 
-    function refreshBar() {
-      if (!el) return;
-      const bar = el._bar;
-      [...bar.querySelectorAll("button")].forEach((b) => b.classList.remove("zf-active"));
-      bar._bPin.classList.toggle("zf-active", cfg.layout === "pinterest");
-      bar._bFoc.classList.toggle("zf-active", cfg.layout === "focus");
-      bar._bText.textContent = cfg.hideText ? "Show text" : "Hide text";
-    }
-
-    function setLayout(layout) {
-      setCfg({ layout });
-    }
-
+    // ---- harvest ----
     function ingest(article) {
-      const card = extractCard(article);
-      if (!card || seen.has(card.id)) return;
-      seen.add(card.id);
-      cards.push(card);
-      if (cfg.layout === "pinterest") appendPinterest(card);
+      const data = extractCard(article);
+      if (!data) return;
+
+      const existing = byId.get(data.id);
+      if (existing) {
+        // Enrich: a post may render its image first and text a moment later.
+        let changed = false;
+        if (!existing.text && data.text) { existing.text = data.text; changed = true; }
+        if (data.imgs.length > existing.imgs.length) { existing.imgs = data.imgs; changed = true; }
+        if (changed) reRenderCard(existing);
+        return;
+      }
+
+      byId.set(data.id, data);
+      cards.push(data);
+      if (cfg.layout === "pinterest") stage.appendChild(buildPinterestCard(data));
       else renderFocus();
       hideEmpty();
     }
 
     function scanAll() {
-      document
-        .querySelectorAll('article[data-testid="tweet"]')
-        .forEach((a) => ingest(a));
+      document.querySelectorAll('article[data-testid="tweet"]').forEach((a) => ingest(a));
     }
 
-    // ---- rendering ----
-    function galleryEl(card, focus) {
+    // ---- shared card pieces ----
+    function galleryEl(card) {
       const g = document.createElement("div");
       g.className = "zf-gallery zf-badge";
       if (card.imgs.length > 1) g.setAttribute("data-count", `1/${card.imgs.length}`);
@@ -232,21 +239,65 @@
       return t;
     }
 
-    function appendPinterest(card) {
+    function flash(btn, label) {
+      const prev = btn.dataset.label;
+      btn.textContent = label;
+      btn.classList.add("zf-done");
+      setTimeout(() => {
+        btn.textContent = prev;
+        btn.classList.remove("zf-done");
+      }, 1400);
+    }
+
+    function actionsEl(card) {
+      const row = document.createElement("div");
+      row.className = "zf-actions";
+
+      const save = document.createElement("button");
+      save.type = "button";
+      save.dataset.label = "Save";
+      save.textContent = "Save";
+      save.title = "Bookmark this post";
+      save.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const r = act(card.id, "bookmark");
+        flash(save, r === "saved" ? "Saved ✓" : "Opened ↗");
+      });
+
+      const rt = document.createElement("button");
+      rt.type = "button";
+      rt.dataset.label = "Repost";
+      rt.textContent = "Repost";
+      rt.title = "Repost this post";
+      rt.addEventListener("click", (e) => {
+        e.stopPropagation();
+        act(card.id, "repost");
+        flash(rt, "Repost ↗");
+      });
+
+      row.append(save, rt);
+      return row;
+    }
+
+    // ---- pinterest ----
+    function buildPinterestCard(card) {
       const c = document.createElement("div");
       c.className = "zf-card" + (card.imgs.length === 0 ? " zf-textonly" : "");
       if (card.imgs.length) c.appendChild(galleryEl(card));
       const t = textEl(card);
       if (t) c.appendChild(t);
-      stage.appendChild(c);
+      c.appendChild(actionsEl(card));
+      card._node = c;
+      return c;
     }
 
     function renderPinterestAll() {
       stage.innerHTML = "";
-      cards.forEach((card) => appendPinterest(card));
+      cards.forEach((card) => stage.appendChild(buildPinterestCard(card)));
       hideEmpty();
     }
 
+    // ---- focus ----
     function renderFocus() {
       if (cfg.layout !== "focus") return;
       stage.innerHTML = "";
@@ -257,12 +308,14 @@
       hideEmpty();
       focusIndex = Math.max(0, Math.min(focusIndex, cards.length - 1));
       const card = cards[focusIndex];
+      card._node = null;
 
       const wrap = document.createElement("div");
       wrap.className = "zf-focus-card";
-      if (card.imgs.length) wrap.appendChild(galleryEl(card, true));
+      if (card.imgs.length) wrap.appendChild(galleryEl(card));
       const t = textEl(card);
       if (t) wrap.appendChild(t);
+      wrap.appendChild(actionsEl(card));
       stage.appendChild(wrap);
 
       const nav = document.createElement("div");
@@ -281,9 +334,20 @@
       stage.appendChild(nav);
     }
 
+    // Re-render a single card in place after it was enriched.
+    function reRenderCard(card) {
+      if (cfg.layout === "focus") {
+        if (cards[focusIndex] && cards[focusIndex].id === card.id) renderFocus();
+        return;
+      }
+      if (card._node && card._node.isConnected) {
+        card._node.replaceWith(buildPinterestCard(card));
+      }
+    }
+
     function go(delta) {
       focusIndex += delta;
-      if (focusIndex >= cards.length - 3) pumpUntil(focusIndex + 10); // prefetch near the end
+      if (focusIndex >= cards.length - 3) pumpUntil(focusIndex + 10);
       renderFocus();
       el.scrollTo({ top: 0 });
     }
@@ -296,10 +360,10 @@
 
     // ---- empty state ----
     function showEmpty() {
-      if (el.querySelector("#zf-empty")) return;
+      if (!el || el.querySelector("#zf-empty")) return;
       const e = document.createElement("div");
       e.id = "zf-empty";
-      e.textContent = "Looking for work to admire… scroll or wait a moment.";
+      e.textContent = "Looking for work to admire…";
       stage.appendChild(e);
     }
     function hideEmpty() {
@@ -307,25 +371,13 @@
       if (e && cards.length) e.remove();
     }
 
-    // ---- keep the (hidden) native feed loading more ----
-    function setLoadingUI(on) {
-      if (!el) return;
-      const b = el._bar && el._bar._bMore;
-      if (b) {
-        b.textContent = on ? "Loading…" : "Load more";
-        b.disabled = on;
-      }
-    }
-
-    // Drive X's real scroll container to the bottom, in a loop, until we've
-    // harvested `target` cards (or the feed stops growing). This is what
-    // actually makes X fetch the next page — a single scrollBy isn't enough.
+    // ---- drive the (hidden) native feed to load more ----
     let pumpTarget = 0;
     async function pumpUntil(target, maxStagnant = 8) {
-      pumpTarget = Math.max(pumpTarget, target); // let a running pump absorb new asks
+      pumpTarget = Math.max(pumpTarget, target);
       if (loading || !active) return;
       loading = true;
-      setLoadingUI(true);
+      Dock.setLoading(true);
       try {
         const scroller = getScroller();
         let stagnant = 0;
@@ -334,12 +386,11 @@
           const beforeH = scroller.scrollHeight;
           const beforeTop = scroller.scrollTop;
 
-          // Advance in big steps (not a teleport) so X's virtualizer actually
-          // renders the tweets we pass — otherwise they're never harvested.
-          // Reaching the bottom is what trips X's next-page fetch.
+          // Big steps (not a teleport) so X's virtualizer renders the tweets we
+          // pass; reaching the bottom is what trips X's next-page fetch.
           const step = Math.max(700, scroller.clientHeight * 2.5);
           scroller.scrollTop = Math.min(scroller.scrollHeight, scroller.scrollTop + step);
-          window.dispatchEvent(new Event("scroll")); // poke window-scroll listeners too
+          window.dispatchEvent(new Event("scroll"));
 
           await sleep(450);
           scanAll();
@@ -349,42 +400,32 @@
           const atBottom =
             scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 8;
 
-          if (grew || moved) {
-            stagnant = 0; // still making progress (new cards, taller feed, or scrolled)
-          } else if (atBottom) {
-            stagnant++; // parked at the bottom with nothing new — wait for a fetch
-            await sleep(450);
-          }
+          if (grew || moved) stagnant = 0;
+          else if (atBottom) { stagnant++; await sleep(450); }
         }
       } finally {
         loading = false;
-        setLoadingUI(false);
+        Dock.setLoading(false);
       }
     }
 
-    // Target sizes: fill the grid on entry, then top up as you browse.
     const FILL = { pinterest: 30, focus: 8 };
     const prefetch = () => pumpUntil(cards.length + 16);
+    const pumpMore = () => pumpUntil(cards.length + 20);
 
     // ---------------------------------------------------------------------
     function enter() {
       if (active) {
-        // Already on — just switch which layout renders.
         root.classList.add("zf-overlay-active");
         if (cfg.layout === "pinterest") renderPinterestAll();
         else renderFocus();
-        refreshBar();
-        pumpUntil(FILL[cfg.layout] || 12); // top up so the new view isn't sparse
+        pumpUntil(FILL[cfg.layout] || 12);
         return;
       }
-      active = true;
-      root.classList.add("zf-overlay-active");
       if (!document.body) {
-        // document_start: wait for body.
         new MutationObserver((_, obs) => {
           if (document.body) { obs.disconnect(); enter2(); }
         }).observe(root, { childList: true, subtree: true });
-        active = false; // enter2 will flip it
         return;
       }
       enter2();
@@ -392,19 +433,16 @@
 
     function enter2() {
       active = true;
+      root.classList.add("zf-overlay-active");
       if (!el) build();
       el.style.display = "block";
-      seen.clear();
+      byId.clear();
       cards.length = 0;
       focusIndex = 0;
       stage.innerHTML = "";
       showEmpty();
-      refreshBar();
 
-      observer = new MutationObserver(() => {
-        // Debounced-ish: cheap scan on any mutation.
-        scanAll();
-      });
+      observer = new MutationObserver(() => scanAll());
       observer.observe(document.body, { childList: true, subtree: true });
 
       io = new IntersectionObserver(
@@ -415,8 +453,7 @@
 
       document.addEventListener("keydown", onKey, true);
       scanAll();
-      // Front-load a batch so the grid actually fills instead of sitting empty.
-      pumpUntil(FILL[cfg.layout] || 12);
+      pumpUntil(FILL[cfg.layout] || 12); // front-load so the grid fills
     }
 
     function exit() {
@@ -428,18 +465,80 @@
       active = false;
     }
 
-    return { enter, exit, refreshBar };
+    return { enter, exit, pumpMore };
   })();
 
-  // Small helper so overlay buttons can write settings (fires storage.onChanged).
-  function setCfg(patch) {
-    Object.assign(cfg, patch);
-    chrome.storage.sync.set(patch);
-    apply();
-  }
+  // ---------------------------------------------------------------------
+  // Floating dock — mode switch + text toggle, visible in EVERY mode
+  // ---------------------------------------------------------------------
+  const Dock = (() => {
+    let dock = null;
+    let segMin, segPin, segFoc, textBtn, moreBtn;
+
+    function seg(label, layout) {
+      const b = document.createElement("button");
+      b.textContent = label;
+      b.className = "zf-seg-btn";
+      b.addEventListener("click", () => setCfg({ layout }));
+      return b;
+    }
+
+    function pill(label, cls, fn) {
+      const b = document.createElement("button");
+      b.textContent = label;
+      b.className = "zf-pill " + (cls || "");
+      b.addEventListener("click", fn);
+      return b;
+    }
+
+    function build() {
+      dock = document.createElement("div");
+      dock.id = "zf-dock";
+
+      const segWrap = document.createElement("div");
+      segWrap.className = "zf-seg";
+      segMin = seg("Minimal", "minimal");
+      segPin = seg("Pinterest", "pinterest");
+      segFoc = seg("Focus", "focus");
+      segWrap.append(segMin, segPin, segFoc);
+
+      textBtn = pill("Text", "", () => setCfg({ hideText: !cfg.hideText }));
+      moreBtn = pill("Load more", "zf-more", () => Overlay.pumpMore());
+      const off = pill("Off", "zf-off", () => setCfg({ enabled: false }));
+
+      dock.append(segWrap, textBtn, moreBtn, off);
+      document.body.appendChild(dock);
+    }
+
+    function ensure() {
+      if (!dock && document.body) build();
+    }
+
+    function update() {
+      ensure();
+      if (!dock) return;
+      dock.style.display = cfg.enabled ? "flex" : "none";
+      segMin.classList.toggle("zf-on", cfg.layout === "minimal");
+      segPin.classList.toggle("zf-on", cfg.layout === "pinterest");
+      segFoc.classList.toggle("zf-on", cfg.layout === "focus");
+      textBtn.textContent = cfg.hideText ? "Text: off" : "Text: on";
+      textBtn.classList.toggle("zf-on", !cfg.hideText);
+      moreBtn.style.display =
+        cfg.layout === "pinterest" || cfg.layout === "focus" ? "" : "none";
+    }
+
+    function setLoading(on) {
+      if (!moreBtn) return;
+      moreBtn.textContent = on ? "Loading…" : "Load more";
+      moreBtn.disabled = on;
+    }
+
+    return { update, setLoading };
+  })();
 
   // ---------------------------------------------------------------------
   // Boot
   // ---------------------------------------------------------------------
   load().then(apply);
+  document.addEventListener("DOMContentLoaded", apply); // ensure dock builds
 })();

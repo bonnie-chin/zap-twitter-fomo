@@ -12,20 +12,22 @@
 /* ------------------------------------------------------------------ *
  * 1. METRICS  — the engagement bar and any stray counts
  * ------------------------------------------------------------------ */
-/* The action bar under each tweet (reply / repost / like / view / bookmark). */
-.zf-enabled.zf-hide-metrics article [role="group"]:has(
-  [data-testid="reply"],
-  [data-testid="retweet"],
-  [data-testid="unretweet"],
-  [data-testid="like"],
-  [data-testid="unlike"]
-) {
+/* Keep the action buttons (so you can still save & repost) but strip the
+   counts next to them — that's the social "information" we don't want. */
+.zf-enabled.zf-hide-metrics article [role="group"] [data-testid="app-text-transition-container"] {
   display: none !important;
 }
 
-/* View-count links / analytics that sometimes render outside the bar. */
-.zf-enabled.zf-hide-metrics a[href$="/analytics"],
-.zf-enabled.zf-hide-metrics [data-testid="app-text-transition-container"]:has(+ * [data-testid="like"]) {
+/* Hide the reply and like buttons entirely (no admiring-by-numbers), but
+   KEEP repost and bookmark so you can still save and share good work. */
+.zf-enabled.zf-hide-metrics article [role="group"] > div:has([data-testid="reply"]),
+.zf-enabled.zf-hide-metrics article [role="group"] > div:has([data-testid="like"]),
+.zf-enabled.zf-hide-metrics article [role="group"] > div:has([data-testid="unlike"]) {
+  display: none !important;
+}
+
+/* The views/analytics item in the action bar. */
+.zf-enabled.zf-hide-metrics article [role="group"] a[href$="/analytics"] {
   display: none !important;
 }
 
@@ -90,8 +92,8 @@
   display: none !important;
 }
 
-/* Re-center the primary column now that the rails are gone. */
-.zf-enabled.zf-hide-chrome [data-testid="primaryColumn"] {
+/* Center the feed in every mode (whether or not the rails are hidden). */
+.zf-enabled [data-testid="primaryColumn"] {
   margin-left: auto !important;
   margin-right: auto !important;
 }
@@ -125,72 +127,89 @@
   -webkit-font-smoothing: antialiased;
 }
 
-/* Slim toolbar */
-#zf-bar {
-  position: sticky;
-  top: 0;
-  z-index: 2;
+/* ------------------------------------------------------------------ *
+ * Floating dock — top-right, present in ALL modes (minimal too).
+ * ------------------------------------------------------------------ */
+#zf-dock {
+  position: fixed;
+  top: 14px;
+  right: 16px;
+  z-index: 2147483200; /* above the overlay, below the messages FAB */
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 12px 20px;
-  background: rgba(11, 11, 13, 0.82);
-  backdrop-filter: blur(12px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-}
-#zf-bar .zf-brand {
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  margin-right: auto;
-  opacity: 0.85;
-}
-#zf-bar button {
-  appearance: none;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: transparent;
-  color: #cfcfd4;
-  padding: 6px 14px;
+  gap: 8px;
+  padding: 7px 8px;
+  background: rgba(22, 22, 25, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 999px;
-  font-size: 13px;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+/* Segmented mode control */
+#zf-dock .zf-seg {
+  display: flex;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 999px;
+  padding: 2px;
+}
+#zf-dock .zf-seg-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: #c7c7cd;
+  font-size: 12.5px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+#zf-dock .zf-seg-btn:hover { color: #fff; }
+#zf-dock .zf-seg-btn.zf-on {
+  background: #e7e7ea;
+  color: #0b0b0d;
+  font-weight: 600;
+}
+#zf-dock .zf-pill {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: transparent;
+  color: #c7c7cd;
+  font-size: 12.5px;
+  padding: 6px 12px;
+  border-radius: 999px;
   cursor: pointer;
   transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
-#zf-bar button:hover {
-  background: rgba(255, 255, 255, 0.08);
+#zf-dock .zf-pill:hover { background: rgba(255, 255, 255, 0.08); }
+#zf-dock .zf-pill.zf-on {
+  border-color: rgba(120, 200, 140, 0.5);
+  color: #9fe0b0;
 }
-#zf-bar button.zf-active {
-  background: #e7e7ea;
-  color: #0b0b0d;
-  border-color: #e7e7ea;
-  font-weight: 600;
-}
-#zf-bar button.zf-off {
-  border-color: rgba(255, 120, 120, 0.4);
-  color: #ff9d9d;
-}
-#zf-bar button.zf-more {
+#zf-dock .zf-pill.zf-more {
   border-color: rgba(120, 170, 255, 0.4);
   color: #9dc0ff;
 }
-#zf-bar button:disabled {
-  opacity: 0.55;
-  cursor: default;
+#zf-dock .zf-pill.zf-off {
+  border-color: rgba(255, 120, 120, 0.4);
+  color: #ff9d9d;
 }
+#zf-dock .zf-pill:disabled { opacity: 0.55; cursor: default; }
 
 #zf-empty {
   text-align: center;
   opacity: 0.5;
-  padding: 80px 20px;
+  padding: 120px 20px 80px;
   font-size: 15px;
   line-height: 1.6;
 }
 
 /* ---- Pinterest (masonry) ---- */
 .zf-mode-pinterest #zf-stage {
-  column-width: 260px;
+  column-width: 240px;
   column-gap: 18px;
-  padding: 22px;
-  max-width: 1400px;
+  padding: 70px 22px 40px; /* top padding clears the floating dock */
+  max-width: 1180px; /* reasonable cap so cards don't sprawl on ultrawide */
   margin: 0 auto;
 }
 .zf-card {
@@ -246,14 +265,41 @@
   backdrop-filter: blur(4px);
 }
 
+/* ---- Per-card actions (save / repost) in overlay views ---- */
+.zf-actions {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px 12px;
+}
+.zf-card .zf-actions { padding-top: 4px; }
+.zf-actions button {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  color: #cfcfd4;
+  font-size: 12.5px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.zf-actions button:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+.zf-actions button.zf-done {
+  border-color: rgba(120, 200, 140, 0.6);
+  color: #9fe0b0;
+}
+
 /* ---- Focus (one at a time) ---- */
 .zf-mode-focus #zf-stage {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-height: calc(100vh - 58px);
-  padding: 30px 20px 60px;
+  min-height: 100vh;
+  padding: 72px 20px 90px; /* top clears the dock, bottom clears the nav */
 }
 .zf-focus-card {
   max-width: min(760px, 92vw);
