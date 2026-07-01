@@ -397,11 +397,7 @@
   white-space: pre-wrap;
 }
 
-/* Big labeled Save / Repost buttons for Focus */
-.zf-focus-actions {
-  display: flex;
-  gap: 12px;
-}
+/* Labeled Save / Repost buttons (used in the Focus bottom bar) */
 .zf-big-btn {
   display: inline-flex;
   align-items: center;
@@ -434,7 +430,7 @@
   backdrop-filter: blur(10px);
   z-index: 3;
 }
-.zf-focus-nav button {
+.zf-focus-nav .zf-step {
   appearance: none;
   border: none;
   background: rgba(255, 255, 255, 0.1);
@@ -447,10 +443,10 @@
   display: grid;
   place-items: center;
 }
-.zf-focus-nav button:hover {
+.zf-focus-nav .zf-step:hover {
   background: rgba(255, 255, 255, 0.22);
 }
-.zf-focus-nav button:disabled {
+.zf-focus-nav .zf-step:disabled {
   opacity: 0.3;
   cursor: default;
 }
@@ -461,6 +457,14 @@
   min-width: 56px;
   text-align: center;
 }
+/* Save / Repost pills sit flush inside the bottom bar, flanking the stepper */
+.zf-focus-nav .zf-big-btn {
+  padding: 8px 16px;
+  font-size: 14px;
+  border-color: transparent;
+  background: rgba(255, 255, 255, 0.1);
+}
+.zf-focus-nav .zf-big-btn:hover { background: rgba(255, 255, 255, 0.2); }
 
 #zf-sentinel {
   height: 1px;

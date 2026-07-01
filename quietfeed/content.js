@@ -60,25 +60,34 @@
     apply();
   }
 
+  // Only run on the main timeline (Home / "For you" / "Following") — not on an
+  // individual post, profile, or other page. Re-checked on SPA navigation.
+  function isActivePage() {
+    const p = location.pathname;
+    return p === "/" || p === "/home";
+  }
+
   // ---------------------------------------------------------------------
   // Apply state
   // ---------------------------------------------------------------------
   function apply() {
-    root.classList.toggle("zf-enabled", cfg.enabled);
-    root.classList.toggle("zf-hide-metrics", cfg.enabled && cfg.hideMetrics);
-    root.classList.toggle("zf-hide-identity", cfg.enabled && cfg.hideIdentity);
-    root.classList.toggle("zf-hide-text", cfg.enabled && cfg.hideText);
-    root.classList.toggle("zf-hide-chrome", cfg.enabled && cfg.hideChrome);
+    const on = cfg.enabled && isActivePage();
 
-    root.classList.toggle("zf-mode-minimal", cfg.enabled && cfg.layout === "minimal");
-    root.classList.toggle("zf-mode-pinterest", cfg.enabled && cfg.layout === "pinterest");
-    root.classList.toggle("zf-mode-focus", cfg.enabled && cfg.layout === "focus");
+    root.classList.toggle("zf-enabled", on);
+    root.classList.toggle("zf-hide-metrics", on && cfg.hideMetrics);
+    root.classList.toggle("zf-hide-identity", on && cfg.hideIdentity);
+    root.classList.toggle("zf-hide-text", on && cfg.hideText);
+    root.classList.toggle("zf-hide-chrome", on && cfg.hideChrome);
 
-    const wantOverlay = cfg.enabled && (cfg.layout === "pinterest" || cfg.layout === "focus");
+    root.classList.toggle("zf-mode-minimal", on && cfg.layout === "minimal");
+    root.classList.toggle("zf-mode-pinterest", on && cfg.layout === "pinterest");
+    root.classList.toggle("zf-mode-focus", on && cfg.layout === "focus");
+
+    const wantOverlay = on && (cfg.layout === "pinterest" || cfg.layout === "focus");
     if (wantOverlay) Overlay.enter();
     else Overlay.exit();
 
-    Dock.update();
+    Dock.update(on);
   }
 
   // ---------------------------------------------------------------------
@@ -109,11 +118,16 @@
     article.querySelectorAll("video").forEach((v) => {
       const raw =
         v.currentSrc || v.src || (v.querySelector("source") && v.querySelector("source").src) || "";
-      // Direct .mp4 (GIFs, short clips) is reusable; blob:/HLS is not, so we
-      // fall back to the poster thumbnail for those.
-      const direct = /^https?:\/\/[^ ]+\.mp4/i.test(raw) ? raw : null;
+      let src = /^https?:\/\/[^ ]+\.mp4/i.test(raw) ? raw : null;
       const poster = v.poster && /^https?:/.test(v.poster) ? v.poster : null;
-      if (direct || poster) media.push({ type: "video", src: direct, poster });
+      // GIF-style clips ("tweet_video") have a derivable direct MP4 we can
+      // autoplay; regular blob/HLS videos don't, so we adopt the live element
+      // when possible or fall back to the poster.
+      if (!src && poster) {
+        const m = poster.match(/tweet_video_thumb\/([A-Za-z0-9_-]+)/);
+        if (m) src = `https://video.twimg.com/tweet_video/${m[1]}.mp4`;
+      }
+      if (src || poster) media.push({ type: "video", src, poster });
     });
 
     const el = article.querySelector('[data-testid="tweetText"]');
@@ -257,27 +271,42 @@
       document.querySelectorAll('article[data-testid="tweet"]').forEach((a) => ingest(a));
     }
 
+    // Configure a <video> for our muted, looping, hover-controls playback.
+    function dressVideo(v) {
+      v.className = "zf-slide";
+      v.muted = true;
+      v.loop = true;
+      v.playsInline = true;
+      v.controls = false;
+      v.setAttribute("controlslist", "nodownload noplaybackrate noremoteplayback");
+      v.addEventListener("mouseenter", () => { v.controls = true; });
+      v.addEventListener("mouseleave", () => { v.controls = false; });
+      if (videoIO) videoIO.observe(v); // only on-screen videos actually play
+      return v;
+    }
+
     // Build a single media slide (image, playable video, or video poster).
     function mediaNode(item, card) {
-      if (item.type === "video" && item.src) {
-        const v = document.createElement("video");
-        v.className = "zf-slide";
-        v.src = item.src;
-        if (item.poster) v.poster = item.poster;
-        v.muted = true;
-        v.loop = true;
-        v.playsInline = true;
-        v.preload = "metadata";
-        v.setAttribute("controlslist", "nodownload noplaybackrate noremoteplayback");
-        // Controls appear on hover; only on-screen videos actually play (videoIO).
-        v.addEventListener("mouseenter", () => { v.controls = true; });
-        v.addEventListener("mouseleave", () => { v.controls = false; });
-        if (videoIO) videoIO.observe(v);
-        return v;
-      }
       if (item.type === "video") {
-        // No reusable stream (blob/HLS): show the poster with a play badge that
-        // opens the post to watch it.
+        // 1) Adopt the live native <video> if it's still in the DOM — this is
+        //    the only way to play blob/HLS clips (their stream can't be reused).
+        const art = findArticle(card.id);
+        const native = art && art.querySelector("video");
+        if (native && !native.dataset.zfAdopted) {
+          try {
+            native.dataset.zfAdopted = "1";
+            return dressVideo(native); // appendChild relocates it into our slide
+          } catch (e) { /* fall through */ }
+        }
+        // 2) A direct/GIF MP4 we can autoplay in our own element.
+        if (item.src) {
+          const v = document.createElement("video");
+          v.src = item.src;
+          if (item.poster) v.poster = item.poster;
+          v.preload = "metadata";
+          return dressVideo(v);
+        }
+        // 3) Fallback: a static poster (no navigation — clicking does nothing).
         const wrap = document.createElement("div");
         wrap.className = "zf-slide zf-videoposter";
         if (item.poster) {
@@ -291,10 +320,6 @@
         play.className = "zf-play";
         play.textContent = "▶";
         wrap.appendChild(play);
-        wrap.addEventListener("click", (e) => {
-          e.stopPropagation();
-          window.open(`https://x.com/i/web/status/${card.id}`, "_blank", "noopener");
-        });
         return wrap;
       }
       const img = document.createElement("img");
@@ -390,14 +415,6 @@
       return row;
     }
 
-    // Bigger labeled actions for Focus.
-    function focusActions(card) {
-      const row = document.createElement("div");
-      row.className = "zf-focus-actions";
-      row.append(iconBtn("bookmark", card, true), iconBtn("repost", card, true));
-      return row;
-    }
-
     // ---- pinterest (JS masonry: stable, fills the shortest column) ----
     let columns = [];
     let colHeights = [];
@@ -473,12 +490,14 @@
       if (card.media.length) wrap.appendChild(mediaEl(card));
       const t = textEl(card);
       if (t) wrap.appendChild(t);
-      wrap.appendChild(focusActions(card));
       stage.appendChild(wrap);
 
+      // Bottom-center bar: Save · ‹ · n/total · › · Repost
       const nav = document.createElement("div");
       nav.className = "zf-focus-nav";
+      const save = iconBtn("bookmark", card, true);
       const prev = document.createElement("button");
+      prev.className = "zf-step";
       prev.textContent = "‹";
       prev.disabled = focusIndex === 0;
       prev.addEventListener("click", () => go(-1));
@@ -487,9 +506,11 @@
       count.textContent = `${focusIndex + 1} / ${focusList.length}`;
       focusCountEl = count;
       const next = document.createElement("button");
+      next.className = "zf-step";
       next.textContent = "›";
       next.addEventListener("click", () => go(1));
-      nav.append(prev, count, next);
+      const rt = iconBtn("repost", card, true);
+      nav.append(save, prev, count, next, rt);
       stage.appendChild(nav);
     }
 
@@ -713,10 +734,10 @@
       if (!dock && document.body) build();
     }
 
-    function update() {
+    function update(on) {
       ensure();
       if (!dock) return;
-      dock.style.display = cfg.enabled ? "flex" : "none";
+      dock.style.display = on ? "flex" : "none";
       segMin.classList.toggle("zf-on", cfg.layout === "minimal");
       segPin.classList.toggle("zf-on", cfg.layout === "pinterest");
       segFoc.classList.toggle("zf-on", cfg.layout === "focus");
@@ -740,4 +761,25 @@
   // ---------------------------------------------------------------------
   load().then(apply);
   document.addEventListener("DOMContentLoaded", apply); // ensure dock builds
+
+  // X is a SPA — re-apply on route changes so we activate only on the main
+  // timeline and back off the moment you click into a post.
+  let lastPath = location.pathname;
+  const onRoute = () => {
+    if (location.pathname !== lastPath) {
+      lastPath = location.pathname;
+      apply();
+    }
+  };
+  ["pushState", "replaceState"].forEach((m) => {
+    const orig = history[m];
+    history[m] = function () {
+      const r = orig.apply(this, arguments);
+      onRoute();
+      return r;
+    };
+  });
+  window.addEventListener("popstate", onRoute);
+  // Safety net in case a navigation slips through the history hooks.
+  setInterval(onRoute, 1000);
 })();

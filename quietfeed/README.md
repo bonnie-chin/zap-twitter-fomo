@@ -42,9 +42,16 @@ these are the visual modes. The **Text** toggle then shows or hides the caption
 keeps pulling the feed until it has enough media posts to fill the wall.
 
 **Videos** play **muted and looping**, and only while they're on screen (so a
-wall of clips stays light); **hover for playback controls**. GIFs and short
-clips (direct MP4) play inline; longer streaming videos show their thumbnail
-with a ▶ that opens the post to watch.
+wall of clips stays light); **hover for playback controls**. GIFs play inline,
+and regular clips play when their native player is still loaded. Streaming
+videos whose player has scrolled out of the feed show their thumbnail with a ▶
+(they don't navigate anywhere on click).
+
+## Where it runs
+
+Quietfeed only activates on the **main timeline** (`x.com/home` — For you /
+Following). Click into a post, profile, or any other page and X looks completely
+normal; it re-activates when you return to the timeline.
 
 ## The dock
 
