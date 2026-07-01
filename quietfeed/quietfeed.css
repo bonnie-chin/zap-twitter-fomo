@@ -18,11 +18,9 @@
   display: none !important;
 }
 
-/* Hide the reply and like buttons entirely (no admiring-by-numbers), but
-   KEEP repost and bookmark so you can still save and share good work. */
-.zf-enabled.zf-hide-metrics article [role="group"] > div:has([data-testid="reply"]),
-.zf-enabled.zf-hide-metrics article [role="group"] > div:has([data-testid="like"]),
-.zf-enabled.zf-hide-metrics article [role="group"] > div:has([data-testid="unlike"]) {
+/* Hide the reply button (no reply-count pressure), but KEEP like, repost, and
+   bookmark so you can still like, save, and share good work. */
+.zf-enabled.zf-hide-metrics article [role="group"] > div:has([data-testid="reply"]) {
   display: none !important;
 }
 
@@ -468,9 +466,12 @@
 }
 .zf-focus-nav .zf-big-btn:hover { background: rgba(255, 255, 255, 0.2); }
 
-/* Action fail state (couldn't save/repost) */
+/* Action fail state (couldn't save/repost/like) */
 .zf-icon-btn.zf-fail,
 .zf-big-btn.zf-fail { color: #ff9d9d; border-color: rgba(255, 120, 120, 0.5); }
+/* Liked state — X's like pink */
+.zf-icon-btn.zf-liked,
+.zf-big-btn.zf-liked { color: #f91880; border-color: rgba(249, 24, 128, 0.5); }
 
 /* ---- Modal lightbox (click a Pinterest card) ---- */
 #zf-modal {

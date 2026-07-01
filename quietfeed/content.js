@@ -142,7 +142,7 @@
     return { id, media, text };
   }
 
-  // X's own bookmark / repost icons so the actions feel native.
+  // X's own bookmark / repost / like icons so the actions feel native.
   const ICONS = {
     bookmark:
       '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4.5C4 3.12 5.119 2 6.5 2h11C18.881 2 20 3.12 20 4.5v18.44l-8-5.71-8 5.71V4.5zM6.5 4c-.276 0-.5.22-.5.5v14.56l6-4.29 6 4.29V4.5c0-.28-.224-.5-.5-.5h-11z"></path></svg>',
@@ -150,7 +150,12 @@
       '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4.5C4 3.12 5.119 2 6.5 2h11C18.881 2 20 3.12 20 4.5v18.44l-8-5.71-8 5.71V4.5z"></path></svg>',
     repost:
       '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 3.88l4.432 4.14-1.364 1.46L5.5 7.55V16c0 1.1.896 2 2 2H13v2H7.5c-2.209 0-4-1.79-4-4V7.55L1.432 9.48.068 8.02 4.5 3.88zM16.5 6H11V4h5.5c2.209 0 4 1.79 4 4v8.45l2.068-1.93 1.364 1.46-4.432 4.14-4.432-4.14 1.364-1.46 2.068 1.93V8c0-1.1-.896-2-2-2z"></path></svg>',
+    like:
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.697 5.5c-1.222-.06-2.679.51-3.89 2.16l-.805 1.09-.806-1.09C9.984 6.01 8.526 5.44 7.304 5.5c-1.243.07-2.349.78-2.91 1.91-.552 1.12-.633 2.78.479 4.82 1.074 1.97 3.257 4.27 7.129 6.61 3.87-2.34 6.052-4.64 7.126-6.61 1.111-2.04 1.03-3.7.477-4.82-.561-1.13-1.666-1.84-2.908-1.91z"></path></svg>',
+    likeFilled:
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.884 13.19c-1.351 2.48-4.001 5.12-8.379 7.67l-.503.3-.504-.3c-4.379-2.55-7.029-5.19-8.382-7.67-1.36-2.5-1.41-4.86-.514-6.67.887-1.79 2.647-2.91 4.601-3.01 1.651-.09 3.368.56 4.798 2.01 1.429-1.45 3.146-2.1 4.796-2.01 1.954.1 3.714 1.22 4.601 3.01.896 1.81.846 4.17-.514 6.67z"></path></svg>',
   };
+  const ACTION_LABEL = { bookmark: "Save", repost: "Repost", like: "Like" };
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -184,7 +189,11 @@
   // own GraphQL endpoints for tweets that have scrolled out of the DOM.
   const X_BEARER =
     "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA";
-  const QID = { bookmark: "aoDbu3RHznuiSkQ9aNM67Q", retweet: "ojPdsZsimiJrUGLR1sjUtA" };
+  const QID = {
+    bookmark: "aoDbu3RHznuiSkQ9aNM67Q",
+    retweet: "ojPdsZsimiJrUGLR1sjUtA",
+    like: "lI07N6Otwv1PhnEgXILM7A",
+  };
 
   async function xGraphql(queryId, name, variables) {
     const ct0 = getCookie("ct0");
@@ -237,6 +246,12 @@
       return (await xGraphql(QID.retweet, "CreateRetweet", { tweet_id: id, dark_request: false }))
         ? "done"
         : "fail";
+    }
+    if (kind === "like") {
+      const lk = art && art.querySelector('[data-testid="like"]');
+      if (lk) { lk.click(); return "done"; }
+      if (art && art.querySelector('[data-testid="unlike"]')) return "done"; // already liked
+      return (await xGraphql(QID.like, "FavoriteTweet", { tweet_id: id })) ? "done" : "fail";
     }
     return "fail";
   }
@@ -444,19 +459,18 @@
         setTimeout(() => btn.classList.remove("zf-fail"), 1400);
         return;
       }
-      if (kind === "bookmark") {
-        const svg = btn.querySelector("svg");
-        if (svg) svg.outerHTML = ICONS.bookmarkFilled;
-      }
-      btn.classList.add("zf-done");
+      const svg = btn.querySelector("svg");
+      if (kind === "bookmark" && svg) svg.outerHTML = ICONS.bookmarkFilled;
+      if (kind === "like" && svg) svg.outerHTML = ICONS.likeFilled;
+      btn.classList.add(kind === "like" ? "zf-liked" : "zf-done");
     }
 
     function iconBtn(kind, card, withLabel) {
       const b = document.createElement("button");
       b.type = "button";
       b.className = withLabel ? "zf-big-btn" : "zf-icon-btn";
-      b.title = kind === "bookmark" ? "Save" : "Repost";
-      b.innerHTML = ICONS[kind] + (withLabel ? `<span>${kind === "bookmark" ? "Save" : "Repost"}</span>` : "");
+      b.title = ACTION_LABEL[kind];
+      b.innerHTML = ICONS[kind] + (withLabel ? `<span>${ACTION_LABEL[kind]}</span>` : "");
       b.addEventListener("click", async (e) => {
         e.stopPropagation();
         if (b.disabled) return;
@@ -472,7 +486,7 @@
     function hoverActions(card) {
       const row = document.createElement("div");
       row.className = "zf-hover-actions";
-      row.append(iconBtn("repost", card, false), iconBtn("bookmark", card, false));
+      row.append(iconBtn("like", card, false), iconBtn("repost", card, false), iconBtn("bookmark", card, false));
       return row;
     }
 
@@ -509,7 +523,7 @@
 
       const actions = document.createElement("div");
       actions.className = "zf-modal-actions";
-      actions.append(iconBtn("bookmark", card, true), iconBtn("repost", card, true));
+      actions.append(iconBtn("bookmark", card, true), iconBtn("like", card, true), iconBtn("repost", card, true));
       panel.appendChild(actions);
 
       const close = document.createElement("button");
@@ -608,6 +622,7 @@
       const nav = document.createElement("div");
       nav.className = "zf-focus-nav";
       const save = iconBtn("bookmark", card, true);
+      const like = iconBtn("like", card, true);
       const prev = document.createElement("button");
       prev.className = "zf-step";
       prev.textContent = "‹";
@@ -622,7 +637,7 @@
       next.textContent = "›";
       next.addEventListener("click", () => go(1));
       const rt = iconBtn("repost", card, true);
-      nav.append(save, prev, count, next, rt);
+      nav.append(save, like, prev, count, next, rt);
       stage.appendChild(nav);
     }
 
@@ -656,6 +671,7 @@
       else if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); go(-1); }
       else if (e.key === "s" || e.key === "S") { if (card) act(card.id, "bookmark"); }
       else if (e.key === "r" || e.key === "R") { if (card) act(card.id, "repost"); }
+      else if (e.key === "l" || e.key === "L") { if (card) act(card.id, "like"); }
     }
 
     let resizeT = 0;

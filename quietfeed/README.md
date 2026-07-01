@@ -19,20 +19,21 @@ Everything is toggleable from the popup (click the toolbar icon):
 | Toggle | Effect |
 | --- | --- |
 | **Quietfeed is on** | Master switch. Off = X looks completely normal. |
-| **Engagement counts** | Hides all counts + the like/reply buttons. **Keeps repost & bookmark** so you can still save and share good work. |
+| **Engagement counts** | Hides all the numbers (likes, reposts, replies, views) and the reply button. **Keeps the like, repost & bookmark buttons** so you can still like, save, and share good work — just without the counts. |
 | **Identity** | Hides avatars, display names, @handles, and timestamps. |
 | **Post text** | Optional — hide the words too, so you only see the visual work. |
 | **Side panels** | Hides the left nav and the right sidebar (trends, who-to-follow). |
 
 The **messages FAB / drawer is always kept** and floats above everything, so you
-never lose your DMs. **Save (bookmark)** and **repost** perform the real action
-on your account — they click X's native button when the post is still loaded, and
-otherwise call X's own API with your session, so they work even for posts that
-have scrolled away. (They never navigate you off the page.)
-- **Minimal** keeps the native repost/bookmark buttons on each post.
-- **Pinterest** shows two circular icon buttons in the bottom-right of a card
-  when you hover it.
-- **Focus** has Save / Repost in the bottom bar (or press **`s`** / **`r`**).
+never lose your DMs. **Like**, **save (bookmark)**, and **repost** perform the
+real action on your account — they click X's native button when the post is still
+loaded, and otherwise call X's own API with your session, so they work even for
+posts that have scrolled away. (They never navigate you off the page.)
+- **Minimal** keeps the native like / repost / bookmark buttons on each post.
+- **Pinterest** shows circular Like / Repost / Save buttons in the bottom-right
+  of a card when you hover it.
+- **Focus** has Save / Like / Repost in the bottom bar (or press **`s`** /
+  **`l`** / **`r`**).
 
 ## Expanding a post (Pinterest)
 
