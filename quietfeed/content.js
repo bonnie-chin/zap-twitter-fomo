@@ -139,7 +139,12 @@
 
     if (media.length === 0 && !text) return null;
 
-    return { id, media, text };
+    // Reflect the post's current state so our buttons show it correctly.
+    const saved = !!article.querySelector('[data-testid="removeBookmark"]');
+    const liked = !!article.querySelector('[data-testid="unlike"]');
+    const reposted = !!article.querySelector('[data-testid="unretweet"]');
+
+    return { id, media, text, saved, liked, reposted };
   }
 
   // X's own bookmark / repost / like icons so the actions feel native.
@@ -156,6 +161,7 @@
       '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.884 13.19c-1.351 2.48-4.001 5.12-8.379 7.67l-.503.3-.504-.3c-4.379-2.55-7.029-5.19-8.382-7.67-1.36-2.5-1.41-4.86-.514-6.67.887-1.79 2.647-2.91 4.601-3.01 1.651-.09 3.368.56 4.798 2.01 1.429-1.45 3.146-2.1 4.796-2.01 1.954.1 3.714 1.22 4.601 3.01.896 1.81.846 4.17-.514 6.67z"></path></svg>',
   };
   const ACTION_LABEL = { bookmark: "Save", repost: "Repost", like: "Like" };
+  const STATE_FIELD = { bookmark: "saved", repost: "reposted", like: "liked" };
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -189,15 +195,61 @@
   // own GraphQL endpoints for tweets that have scrolled out of the DOM.
   const X_BEARER =
     "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA";
-  const QID = {
-    bookmark: "aoDbu3RHznuiSkQ9aNM67Q",
-    retweet: "ojPdsZsimiJrUGLR1sjUtA",
-    like: "lI07N6Otwv1PhnEgXILM7A",
-  };
+  const OP = { bookmark: "CreateBookmark", repost: "CreateRetweet", like: "FavoriteTweet" };
 
-  async function xGraphql(queryId, name, variables) {
+  // Query IDs change when X ships new JS, so we DISCOVER them from X's own
+  // bundles instead of hardcoding. Cached, and re-discovered if one goes stale.
+  let QID = null;
+  let qidPromise = null;
+
+  async function discoverQIDs() {
+    const found = {};
+    const srcs = [...document.scripts]
+      .map((s) => s.src)
+      .filter((s) => s && /twimg\.com\/responsive-web\/client-web/.test(s));
+    for (const url of srcs) {
+      if (Object.keys(found).length >= 3) break;
+      let text = "";
+      try {
+        text = await new Promise((res) =>
+          chrome.runtime.sendMessage({ type: "zf:fetchText", url }, (r) => res(r || ""))
+        );
+      } catch (e) { continue; }
+      if (!text) continue;
+      for (const key of Object.keys(OP)) {
+        if (found[key]) continue;
+        const op = OP[key];
+        const m =
+          text.match(new RegExp('queryId:"([a-zA-Z0-9_-]+)",operationName:"' + op + '"')) ||
+          text.match(new RegExp('operationName:"' + op + '"[^}]{0,240}?queryId:"([a-zA-Z0-9_-]+)"'));
+        if (m) found[key] = m[1];
+      }
+    }
+    return found;
+  }
+
+  async function ensureQIDs(force) {
+    if (QID && !force) return QID;
+    if (qidPromise && !force) return qidPromise;
+    qidPromise = (async () => {
+      const found = await discoverQIDs();
+      QID = { ...(QID || {}), ...found };
+      try { chrome.storage.local.set({ zfQID: QID }); } catch (e) {}
+      return QID;
+    })();
+    const r = await qidPromise;
+    qidPromise = null;
+    return r;
+  }
+  // Seed from cache so the first action is instant when IDs haven't changed.
+  try {
+    chrome.storage.local.get({ zfQID: null }, (r) => { if (r && r.zfQID) QID = r.zfQID; });
+  } catch (e) {}
+
+  async function postGraphql(queryId, name, variables) {
+    if (!queryId) return null;
     const ct0 = getCookie("ct0");
-    if (!ct0) return false;
+    if (!ct0) return null;
     try {
       const res = await fetch(`https://x.com/i/api/graphql/${queryId}/${name}`, {
         method: "POST",
@@ -213,8 +265,20 @@
       });
       return res.ok;
     } catch (e) {
-      return false;
+      return null;
     }
+  }
+
+  // Call an action endpoint, re-discovering the query ID once if it's stale.
+  async function xAction(key, variables) {
+    const name = OP[key];
+    let ids = await ensureQIDs(false);
+    let ok = await postGraphql(ids[key], name, variables);
+    if (ok === null || ok === false) {
+      ids = await ensureQIDs(true); // force fresh discovery, then retry once
+      ok = await postGraphql(ids[key], name, variables);
+    }
+    return !!ok;
   }
 
   // Wait for X's repost confirmation menu, then click "Repost".
@@ -237,21 +301,19 @@
       const add = art && art.querySelector('[data-testid="bookmark"]');
       if (add) { add.click(); return "done"; }
       if (art && art.querySelector('[data-testid="removeBookmark"]')) return "done"; // already saved
-      return (await xGraphql(QID.bookmark, "CreateBookmark", { tweet_id: id })) ? "done" : "fail";
+      return (await xAction("bookmark", { tweet_id: id })) ? "done" : "fail";
     }
     if (kind === "repost") {
       const rt = art && art.querySelector('[data-testid="retweet"]');
       if (rt) { rt.click(); return (await clickRetweetConfirm()) ? "done" : "fail"; }
       if (art && art.querySelector('[data-testid="unretweet"]')) return "done"; // already reposted
-      return (await xGraphql(QID.retweet, "CreateRetweet", { tweet_id: id, dark_request: false }))
-        ? "done"
-        : "fail";
+      return (await xAction("repost", { tweet_id: id, dark_request: false })) ? "done" : "fail";
     }
     if (kind === "like") {
       const lk = art && art.querySelector('[data-testid="like"]');
       if (lk) { lk.click(); return "done"; }
       if (art && art.querySelector('[data-testid="unlike"]')) return "done"; // already liked
-      return (await xGraphql(QID.like, "FavoriteTweet", { tweet_id: id })) ? "done" : "fail";
+      return (await xAction("like", { tweet_id: id })) ? "done" : "fail";
     }
     return "fail";
   }
@@ -307,6 +369,10 @@
         let changed = false;
         if (!existing.text && data.text) { existing.text = data.text; changed = true; }
         if (data.media.length > existing.media.length) { existing.media = data.media; changed = true; }
+        // Pick up state that became true (e.g. saved/liked elsewhere).
+        for (const f of ["saved", "liked", "reposted"]) {
+          if (data[f] && !existing[f]) { existing[f] = true; changed = true; }
+        }
         if (changed) reRenderCard(existing);
         return;
       }
@@ -453,31 +519,34 @@
     }
 
     // ---- actions ----
-    function markDone(btn, kind, result) {
-      if (result === "fail") {
-        btn.classList.add("zf-fail");
-        setTimeout(() => btn.classList.remove("zf-fail"), 1400);
-        return;
-      }
-      const svg = btn.querySelector("svg");
-      if (kind === "bookmark" && svg) svg.outerHTML = ICONS.bookmarkFilled;
-      if (kind === "like" && svg) svg.outerHTML = ICONS.likeFilled;
-      btn.classList.add(kind === "like" ? "zf-liked" : "zf-done");
-    }
-
+    // A button that reflects the post's live state (card.saved/liked/reposted).
     function iconBtn(kind, card, withLabel) {
       const b = document.createElement("button");
       b.type = "button";
       b.className = withLabel ? "zf-big-btn" : "zf-icon-btn";
       b.title = ACTION_LABEL[kind];
-      b.innerHTML = ICONS[kind] + (withLabel ? `<span>${ACTION_LABEL[kind]}</span>` : "");
+      const field = STATE_FIELD[kind];
+
+      const paint = () => {
+        const active = !!card[field];
+        let icon = ICONS[kind];
+        if (active && kind === "bookmark") icon = ICONS.bookmarkFilled;
+        if (active && kind === "like") icon = ICONS.likeFilled;
+        b.innerHTML = icon + (withLabel ? `<span>${ACTION_LABEL[kind]}</span>` : "");
+        b.classList.toggle("zf-act-save", active && kind === "bookmark");
+        b.classList.toggle("zf-act-like", active && kind === "like");
+        b.classList.toggle("zf-act-repost", active && kind === "repost");
+      };
+      paint();
+
       b.addEventListener("click", async (e) => {
         e.stopPropagation();
-        if (b.disabled) return;
+        if (b.disabled || card[field]) return; // already done — no accidental undo
         b.disabled = true;
         const r = await act(card.id, kind);
-        markDone(b, kind, r);
-        if (r === "fail") b.disabled = false; // allow retry
+        if (r === "done") { card[field] = true; paint(); }
+        else { b.classList.add("zf-fail"); setTimeout(() => b.classList.remove("zf-fail"), 1400); }
+        b.disabled = false;
       });
       return b;
     }
@@ -664,14 +733,20 @@
       return a && (/^(input|textarea)$/i.test(a.tagName) || a.isContentEditable);
     }
 
+    function kbdAct(card, kind) {
+      const field = STATE_FIELD[kind];
+      if (!card || card[field]) return;
+      act(card.id, kind).then((r) => { if (r === "done") { card[field] = true; renderFocus(); } });
+    }
+
     function onKey(e) {
       if (!active || cfg.layout !== "focus" || typingInField()) return;
       const card = focusList[focusIndex];
       if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); go(1); }
       else if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); go(-1); }
-      else if (e.key === "s" || e.key === "S") { if (card) act(card.id, "bookmark"); }
-      else if (e.key === "r" || e.key === "R") { if (card) act(card.id, "repost"); }
-      else if (e.key === "l" || e.key === "L") { if (card) act(card.id, "like"); }
+      else if (e.key === "s" || e.key === "S") { kbdAct(card, "bookmark"); }
+      else if (e.key === "r" || e.key === "R") { kbdAct(card, "repost"); }
+      else if (e.key === "l" || e.key === "L") { kbdAct(card, "like"); }
     }
 
     let resizeT = 0;
@@ -724,7 +799,7 @@
 
           scroller.scrollTop = scroller.scrollHeight; // to the bottom → trips X's fetch
           kick(scroller);
-          await sleep(500);
+          await sleep(400);
           scanAll();
 
           let grew = cards.length > beforeCards || scroller.scrollHeight > beforeH + 20;
@@ -750,9 +825,21 @@
       }
     }
 
-    const FILL = { pinterest: 24, focus: 6 }; // visible-card targets
-    const prefetch = () => pumpUntil(visibleCards().length + 14);
-    const pumpMore = () => pumpUntil(visibleCards().length + 18);
+    const FILL = { pinterest: 30, focus: 6 }; // visible-card targets
+    // Keep a generous buffer loaded ahead so the wall feels infinite.
+    const prefetch = () => pumpUntil(visibleCards().length + 30);
+    const pumpMore = () => pumpUntil(visibleCards().length + 30);
+
+    // Trigger loading well before the bottom (both a big IO margin and a
+    // scroll check, since IO margins on a scroll-container root can be flaky).
+    let scrollThrottled = false;
+    function onOverlayScroll() {
+      if (!active || scrollThrottled) return;
+      scrollThrottled = true;
+      requestAnimationFrame(() => { scrollThrottled = false; });
+      const remaining = el.scrollHeight - el.scrollTop - el.clientHeight;
+      if (remaining < el.clientHeight * 3) prefetch();
+    }
 
     // ---------------------------------------------------------------------
     function enter() {
@@ -801,12 +888,13 @@
 
       io = new IntersectionObserver(
         (entries) => entries.forEach((en) => en.isIntersecting && prefetch()),
-        { root: el, rootMargin: "800px" }
+        { root: el, rootMargin: "2500px" } // start loading long before the bottom
       );
       io.observe(sentinel);
 
       document.addEventListener("keydown", onKey, true);
       window.addEventListener("resize", onResize);
+      el.addEventListener("scroll", onOverlayScroll, { passive: true });
       scanAll();
       pumpUntil(FILL[cfg.layout] || 12); // front-load so the grid fills
     }
@@ -819,6 +907,7 @@
       if (videoIO) { videoIO.disconnect(); videoIO = null; }
       document.removeEventListener("keydown", onKey, true);
       window.removeEventListener("resize", onResize);
+      if (el) el.removeEventListener("scroll", onOverlayScroll);
       if (el) el.style.display = "none";
       active = false;
     }

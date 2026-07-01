@@ -347,7 +347,6 @@
 .zf-icon-btn:hover { background: rgba(40, 40, 44, 0.95); transform: scale(1.06); }
 .zf-icon-btn:active { transform: scale(0.94); }
 .zf-icon-btn svg { width: 19px; height: 19px; fill: currentColor; }
-.zf-icon-btn.zf-done { color: #7fe0a0; }
 
 /* ---- Focus (one at a time) ---- */
 .zf-mode-focus #zf-stage {
@@ -414,7 +413,6 @@
 .zf-big-btn:hover { background: rgba(255, 255, 255, 0.12); }
 .zf-big-btn:active { transform: scale(0.97); }
 .zf-big-btn svg { width: 20px; height: 20px; fill: currentColor; }
-.zf-big-btn.zf-done { border-color: rgba(120, 200, 140, 0.6); color: #9fe0b0; }
 .zf-focus-nav {
   position: fixed;
   bottom: 28px;
@@ -469,9 +467,13 @@
 /* Action fail state (couldn't save/repost/like) */
 .zf-icon-btn.zf-fail,
 .zf-big-btn.zf-fail { color: #ff9d9d; border-color: rgba(255, 120, 120, 0.5); }
-/* Liked state — X's like pink */
-.zf-icon-btn.zf-liked,
-.zf-big-btn.zf-liked { color: #f91880; border-color: rgba(249, 24, 128, 0.5); }
+/* Active states: saved = filled white, liked = light red, reposted = green */
+.zf-icon-btn.zf-act-save,
+.zf-big-btn.zf-act-save { color: #ffffff; }
+.zf-icon-btn.zf-act-like,
+.zf-big-btn.zf-act-like { color: #ff5c6c; border-color: rgba(255, 92, 108, 0.5); }
+.zf-icon-btn.zf-act-repost,
+.zf-big-btn.zf-act-repost { color: #00ba7c; border-color: rgba(0, 186, 124, 0.5); }
 
 /* ---- Modal lightbox (click a Pinterest card) ---- */
 #zf-modal {
