@@ -36,6 +36,10 @@ every view, using X's own icons:
 Posts with multiple images become a **carousel** (one image at a time with a
 `1/n` counter and arrows) instead of a tall stack.
 
+In Pinterest/Focus, text-only posts only appear when **Text is on** — with Text
+off these views show just the visual work (no empty cards), and the loader keeps
+pulling the feed until it has enough *image* posts to fill the wall.
+
 ## The dock
 
 A small floating **dock** sits in the top-right corner in every mode. It has a

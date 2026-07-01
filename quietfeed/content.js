@@ -185,7 +185,9 @@
 
     const byId = new Map(); // id -> card model
     const cards = []; // ordered card models
+    let focusList = []; // currently-visible cards, in order (Focus navigation)
     let focusIndex = 0;
+    let focusCountEl = null;
     let loading = false;
 
     function build() {
@@ -201,6 +203,13 @@
       el.append(stage, sentinel);
       document.body.appendChild(el);
     }
+
+    // A card is worth showing only if it has an image, or its text is showing.
+    // Otherwise (e.g. a text post while Text is off) it would be an empty card.
+    function isVisible(card) {
+      return card.imgs.length > 0 || (!cfg.hideText && !!card.text);
+    }
+    const visibleCards = () => cards.filter(isVisible);
 
     // ---- harvest ----
     function ingest(article) {
@@ -219,9 +228,16 @@
 
       byId.set(data.id, data);
       cards.push(data);
+      if (!isVisible(data)) return; // keep it (Text toggle may reveal it) but don't render an empty card
       if (cfg.layout === "pinterest") placePinterest(data);
-      else renderFocus();
+      else if (focusList.length === 0) renderFocus(); // first visible card
+      else syncFocusCount(); // otherwise just keep the "n / total" live, no reload
       hideEmpty();
+    }
+
+    function syncFocusCount() {
+      focusList = visibleCards();
+      if (focusCountEl) focusCountEl.textContent = `${focusIndex + 1} / ${focusList.length}`;
     }
 
     function scanAll() {
@@ -349,7 +365,7 @@
     function buildPinterestCard(card) {
       const c = document.createElement("div");
       c.className = "zf-card" + (card.imgs.length === 0 ? " zf-textonly" : "");
-      c.appendChild(mediaEl(card));
+      if (card.imgs.length) c.appendChild(mediaEl(card));
       const t = textEl(card);
       if (t) c.appendChild(t);
       c.appendChild(hoverActions(card));
@@ -375,7 +391,7 @@
 
     function renderPinterestAll() {
       buildColumns();
-      cards.forEach((card) => placePinterest(card));
+      visibleCards().forEach((card) => placePinterest(card));
       hideEmpty();
     }
 
@@ -383,18 +399,19 @@
     function renderFocus() {
       if (cfg.layout !== "focus") return;
       stage.innerHTML = "";
-      if (!cards.length) {
+      focusList = visibleCards();
+      if (!focusList.length) {
         showEmpty();
         return;
       }
       hideEmpty();
-      focusIndex = Math.max(0, Math.min(focusIndex, cards.length - 1));
-      const card = cards[focusIndex];
+      focusIndex = Math.max(0, Math.min(focusIndex, focusList.length - 1));
+      const card = focusList[focusIndex];
       card._node = null;
 
       const wrap = document.createElement("div");
       wrap.className = "zf-focus-card";
-      wrap.appendChild(mediaEl(card, true));
+      if (card.imgs.length) wrap.appendChild(mediaEl(card, true));
       const t = textEl(card);
       if (t) wrap.appendChild(t);
       wrap.appendChild(focusActions(card));
@@ -408,7 +425,8 @@
       prev.addEventListener("click", () => go(-1));
       const count = document.createElement("span");
       count.className = "zf-count";
-      count.textContent = `${focusIndex + 1} / ${cards.length}`;
+      count.textContent = `${focusIndex + 1} / ${focusList.length}`;
+      focusCountEl = count;
       const next = document.createElement("button");
       next.textContent = "›";
       next.addEventListener("click", () => go(1));
@@ -419,7 +437,7 @@
     // Re-render a single card in place after it was enriched.
     function reRenderCard(card) {
       if (cfg.layout === "focus") {
-        if (cards[focusIndex] && cards[focusIndex].id === card.id) renderFocus();
+        if (focusList[focusIndex] && focusList[focusIndex].id === card.id) renderFocus();
         return;
       }
       if (card._node && card._node.isConnected) {
@@ -429,7 +447,7 @@
 
     function go(delta) {
       focusIndex += delta;
-      if (focusIndex >= cards.length - 3) pumpUntil(focusIndex + 10);
+      if (focusIndex >= visibleCards().length - 3) pumpUntil(focusIndex + 10);
       renderFocus();
       el.scrollTo({ top: 0 });
     }
@@ -441,7 +459,7 @@
 
     function onKey(e) {
       if (!active || cfg.layout !== "focus" || typingInField()) return;
-      const card = cards[focusIndex];
+      const card = focusList[focusIndex];
       if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); go(1); }
       else if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); go(-1); }
       else if (e.key === "s" || e.key === "S") { if (card) act(card.id, "bookmark"); }
@@ -467,12 +485,15 @@
     }
     function hideEmpty() {
       const e = el && el.querySelector("#zf-empty");
-      if (e && cards.length) e.remove();
+      if (e && visibleCards().length) e.remove();
     }
 
     // ---- drive the (hidden) native feed to load more ----
+    // `target` is a count of VISIBLE cards (image posts, or text posts when
+    // Text is on) — text-only posts don't count, so the wall actually fills.
+    const HARVEST_CAP = 600; // safety stop so we never scroll forever
     let pumpTarget = 0;
-    async function pumpUntil(target, maxStagnant = 8) {
+    async function pumpUntil(target, maxStagnant = 10) {
       pumpTarget = Math.max(pumpTarget, target);
       if (loading || !active) return;
       loading = true;
@@ -480,7 +501,12 @@
       try {
         const scroller = getScroller();
         let stagnant = 0;
-        while (active && cards.length < pumpTarget && stagnant < maxStagnant) {
+        while (
+          active &&
+          visibleCards().length < pumpTarget &&
+          cards.length < HARVEST_CAP &&
+          stagnant < maxStagnant
+        ) {
           const beforeCards = cards.length;
           const beforeH = scroller.scrollHeight;
           const beforeTop = scroller.scrollTop;
@@ -508,9 +534,9 @@
       }
     }
 
-    const FILL = { pinterest: 30, focus: 8 };
-    const prefetch = () => pumpUntil(cards.length + 16);
-    const pumpMore = () => pumpUntil(cards.length + 20);
+    const FILL = { pinterest: 24, focus: 6 }; // visible-card targets
+    const prefetch = () => pumpUntil(visibleCards().length + 14);
+    const pumpMore = () => pumpUntil(visibleCards().length + 18);
 
     // ---------------------------------------------------------------------
     function enter() {
@@ -537,6 +563,7 @@
       el.style.display = "block";
       byId.clear();
       cards.length = 0;
+      focusList = [];
       focusIndex = 0;
       stage.innerHTML = "";
       showEmpty();
