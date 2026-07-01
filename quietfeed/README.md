@@ -33,12 +33,18 @@ every view, using X's own icons:
 - **Focus** has large labeled **Save** / **Repost** buttons, or just press
   **`s`** to save and **`r`** to repost the post you're looking at.
 
-Posts with multiple images become a **carousel** (one image at a time with a
+Posts with multiple images/videos become a **carousel** (one at a time with a
 `1/n` counter and arrows) instead of a tall stack.
 
-In Pinterest/Focus, text-only posts only appear when **Text is on** — with Text
-off these views show just the visual work (no empty cards), and the loader keeps
-pulling the feed until it has enough *image* posts to fill the wall.
+In Pinterest/Focus, **only posts with media (images or video) become cards** —
+these are the visual modes. The **Text** toggle then shows or hides the caption
+*on those cards* (it doesn't flood the wall with text-only posts). The loader
+keeps pulling the feed until it has enough media posts to fill the wall.
+
+**Videos** play **muted and looping**, and only while they're on screen (so a
+wall of clips stays light); **hover for playback controls**. GIFs and short
+clips (direct MP4) play inline; longer streaming videos show their thumbnail
+with a ▶ that opens the post to watch.
 
 ## The dock
 

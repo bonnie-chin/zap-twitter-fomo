@@ -239,7 +239,8 @@
   transform: translateY(-3px);
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
 }
-.zf-card img {
+.zf-card img,
+.zf-card video {
   display: block;
   width: 100%;
   height: auto;
@@ -252,18 +253,30 @@
   white-space: pre-wrap;
   word-break: break-word;
 }
-.zf-card.zf-textonly {
-  background: #1a1a1f;
-}
-.zf-card.zf-textonly .zf-text {
-  font-size: 15px;
-  color: #dcdce2;
-  padding: 20px;
-}
 
-/* ---- Media carousel (one image at a time) ---- */
+/* ---- Media carousel (one slide at a time; images + videos) ---- */
 .zf-media {
   position: relative;
+  background: #000;
+}
+.zf-media video { display: block; width: 100%; height: auto; background: #000; }
+.zf-videoposter { position: relative; cursor: pointer; }
+.zf-videoposter img { display: block; width: 100%; height: auto; }
+.zf-play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 20px;
+  display: grid;
+  place-items: center;
+  padding-left: 4px;
+  backdrop-filter: blur(4px);
 }
 .zf-count-badge {
   position: absolute;
@@ -360,7 +373,8 @@
   border: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
 }
-.zf-focus-card img {
+.zf-focus-card img,
+.zf-focus-card video {
   display: block;
   width: 100%;
   height: auto;

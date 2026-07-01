@@ -96,13 +96,25 @@
   }
 
   // Returns a card model, or null if there's nothing worth showing.
+  // media: [{type:'image', src} | {type:'video', src|null, poster|null}]
   function extractCard(article) {
     const id = statusId(article);
     if (!id) return null;
 
-    const imgs = [...article.querySelectorAll('[data-testid="tweetPhoto"] img')]
-      .map((img) => upscale(img.currentSrc || img.src))
-      .filter((src) => src && src.includes("pbs.twimg.com/media"));
+    const media = [];
+    article.querySelectorAll('[data-testid="tweetPhoto"] img').forEach((img) => {
+      const src = upscale(img.currentSrc || img.src);
+      if (src && src.includes("pbs.twimg.com/media")) media.push({ type: "image", src });
+    });
+    article.querySelectorAll("video").forEach((v) => {
+      const raw =
+        v.currentSrc || v.src || (v.querySelector("source") && v.querySelector("source").src) || "";
+      // Direct .mp4 (GIFs, short clips) is reusable; blob:/HLS is not, so we
+      // fall back to the poster thumbnail for those.
+      const direct = /^https?:\/\/[^ ]+\.mp4/i.test(raw) ? raw : null;
+      const poster = v.poster && /^https?:/.test(v.poster) ? v.poster : null;
+      if (direct || poster) media.push({ type: "video", src: direct, poster });
+    });
 
     const el = article.querySelector('[data-testid="tweetText"]');
     // IMPORTANT: use textContent, not innerText. While the overlay is up the
@@ -111,9 +123,9 @@
     // visibility and gives us the words regardless.
     const text = el ? el.textContent.trim() : "";
 
-    if (imgs.length === 0 && !text) return null;
+    if (media.length === 0 && !text) return null;
 
-    return { id, imgs, text };
+    return { id, media, text };
   }
 
   // X's own bookmark / repost icons so the actions feel native.
@@ -189,6 +201,7 @@
     let focusIndex = 0;
     let focusCountEl = null;
     let loading = false;
+    let videoIO = null; // plays only on-screen videos, pauses the rest
 
     function build() {
       el = document.createElement("div");
@@ -204,10 +217,10 @@
       document.body.appendChild(el);
     }
 
-    // A card is worth showing only if it has an image, or its text is showing.
-    // Otherwise (e.g. a text post while Text is off) it would be an empty card.
+    // These are visual modes: only posts with media (image/video) become cards.
+    // The Text toggle then shows/hides the caption on those cards.
     function isVisible(card) {
-      return card.imgs.length > 0 || (!cfg.hideText && !!card.text);
+      return card.media.length > 0;
     }
     const visibleCards = () => cards.filter(isVisible);
 
@@ -218,10 +231,10 @@
 
       const existing = byId.get(data.id);
       if (existing) {
-        // Enrich: a post may render its image first and text a moment later.
+        // Enrich: a post may render media/text a moment after it first appears.
         let changed = false;
         if (!existing.text && data.text) { existing.text = data.text; changed = true; }
-        if (data.imgs.length > existing.imgs.length) { existing.imgs = data.imgs; changed = true; }
+        if (data.media.length > existing.media.length) { existing.media = data.media; changed = true; }
         if (changed) reRenderCard(existing);
         return;
       }
@@ -244,32 +257,81 @@
       document.querySelectorAll('article[data-testid="tweet"]').forEach((a) => ingest(a));
     }
 
-    // ---- media carousel (one image at a time; handles multi-image posts) ----
-    function mediaEl(card, big) {
-      const wrap = document.createElement("div");
-      wrap.className = "zf-media";
-      if (!card.imgs.length) return wrap;
-
-      let idx = 0;
+    // Build a single media slide (image, playable video, or video poster).
+    function mediaNode(item, card) {
+      if (item.type === "video" && item.src) {
+        const v = document.createElement("video");
+        v.className = "zf-slide";
+        v.src = item.src;
+        if (item.poster) v.poster = item.poster;
+        v.muted = true;
+        v.loop = true;
+        v.playsInline = true;
+        v.preload = "metadata";
+        v.setAttribute("controlslist", "nodownload noplaybackrate noremoteplayback");
+        // Controls appear on hover; only on-screen videos actually play (videoIO).
+        v.addEventListener("mouseenter", () => { v.controls = true; });
+        v.addEventListener("mouseleave", () => { v.controls = false; });
+        if (videoIO) videoIO.observe(v);
+        return v;
+      }
+      if (item.type === "video") {
+        // No reusable stream (blob/HLS): show the poster with a play badge that
+        // opens the post to watch it.
+        const wrap = document.createElement("div");
+        wrap.className = "zf-slide zf-videoposter";
+        if (item.poster) {
+          const img = document.createElement("img");
+          img.loading = "lazy";
+          img.referrerPolicy = "no-referrer";
+          img.src = item.poster;
+          wrap.appendChild(img);
+        }
+        const play = document.createElement("span");
+        play.className = "zf-play";
+        play.textContent = "▶";
+        wrap.appendChild(play);
+        wrap.addEventListener("click", (e) => {
+          e.stopPropagation();
+          window.open(`https://x.com/i/web/status/${card.id}`, "_blank", "noopener");
+        });
+        return wrap;
+      }
       const img = document.createElement("img");
+      img.className = "zf-slide";
       img.loading = "lazy";
       img.referrerPolicy = "no-referrer";
-      wrap.appendChild(img);
-
-      const multi = card.imgs.length > 1;
-      let badge = null;
-      const update = () => {
-        idx = Math.max(0, Math.min(idx, card.imgs.length - 1));
-        img.src = card.imgs[idx];
-        if (badge) badge.textContent = `${idx + 1}/${card.imgs.length}`;
-      };
-
-      // Drop broken images; if a card ends up with nothing to show, remove it.
+      img.src = item.src;
+      // If a lone image fails and there's nothing else to show, drop the card.
       img.addEventListener("error", () => {
-        card.imgs.splice(idx, 1);
-        if (card.imgs.length) update();
-        else if (!card.text && card._node && card._node.isConnected) card._node.remove();
+        if (card.media.length <= 1 && !card.text && card._node && card._node.isConnected) {
+          card._node.remove();
+        }
       });
+      return img;
+    }
+
+    // ---- media carousel: one slide at a time; handles multi-media posts ----
+    function mediaEl(card) {
+      const wrap = document.createElement("div");
+      wrap.className = "zf-media";
+      const items = card.media;
+      if (!items.length) return wrap;
+
+      let idx = 0;
+      const nodes = items.map((it) => mediaNode(it, card));
+      nodes.forEach((n, i) => {
+        if (i !== 0) n.style.display = "none";
+        wrap.appendChild(n);
+      });
+
+      const multi = items.length > 1;
+      let badge = null;
+      const show = () => {
+        idx = (idx + items.length) % items.length;
+        nodes.forEach((n, i) => { n.style.display = i === idx ? "" : "none"; });
+        if (badge) badge.textContent = `${idx + 1}/${items.length}`;
+      };
 
       if (multi) {
         wrap.classList.add("zf-multi");
@@ -280,16 +342,12 @@
           b.type = "button";
           b.className = cls;
           b.textContent = txt;
-          b.addEventListener("click", (e) => {
-            e.stopPropagation();
-            idx = (idx + d + card.imgs.length) % card.imgs.length;
-            update();
-          });
+          b.addEventListener("click", (e) => { e.stopPropagation(); idx += d; show(); });
           return b;
         };
         wrap.append(badge, arrow("zf-car zf-car-prev", "‹", -1), arrow("zf-car zf-car-next", "›", 1));
       }
-      update();
+      show();
       return wrap;
     }
 
@@ -364,8 +422,8 @@
 
     function buildPinterestCard(card) {
       const c = document.createElement("div");
-      c.className = "zf-card" + (card.imgs.length === 0 ? " zf-textonly" : "");
-      if (card.imgs.length) c.appendChild(mediaEl(card));
+      c.className = "zf-card";
+      c.appendChild(mediaEl(card));
       const t = textEl(card);
       if (t) c.appendChild(t);
       c.appendChild(hoverActions(card));
@@ -383,9 +441,10 @@
       columns[i].appendChild(node);
       const est = 320;
       colHeights[i] += est;
-      const img = node.querySelector("img");
+      const media = node.querySelector("img, video");
       const correct = () => { colHeights[i] += (node.offsetHeight || est) - est; };
-      if (img && !img.complete) img.addEventListener("load", correct, { once: true });
+      if (media && media.tagName === "IMG" && !media.complete) media.addEventListener("load", correct, { once: true });
+      else if (media && media.tagName === "VIDEO") media.addEventListener("loadedmetadata", correct, { once: true });
       else correct();
     }
 
@@ -411,7 +470,7 @@
 
       const wrap = document.createElement("div");
       wrap.className = "zf-focus-card";
-      if (card.imgs.length) wrap.appendChild(mediaEl(card, true));
+      if (card.media.length) wrap.appendChild(mediaEl(card));
       const t = textEl(card);
       if (t) wrap.appendChild(t);
       wrap.appendChild(focusActions(card));
@@ -568,6 +627,17 @@
       stage.innerHTML = "";
       showEmpty();
 
+      // Play only videos that are actually on screen (and, since hidden slides
+      // are display:none, only the visible slide of each carousel).
+      videoIO = new IntersectionObserver(
+        (entries) => entries.forEach((en) => {
+          const v = en.target;
+          if (en.isIntersecting) { const p = v.play(); if (p) p.catch(() => {}); }
+          else v.pause();
+        }),
+        { root: el, threshold: 0.4 }
+      );
+
       observer = new MutationObserver(() => scanAll());
       observer.observe(document.body, { childList: true, subtree: true });
 
@@ -587,6 +657,7 @@
       root.classList.remove("zf-overlay-active");
       if (observer) { observer.disconnect(); observer = null; }
       if (io) { io.disconnect(); io = null; }
+      if (videoIO) { videoIO.disconnect(); videoIO = null; }
       document.removeEventListener("keydown", onKey, true);
       window.removeEventListener("resize", onResize);
       if (el) el.style.display = "none";
