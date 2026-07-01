@@ -105,14 +105,26 @@
       .filter((src) => src && src.includes("pbs.twimg.com/media"));
 
     const el = article.querySelector('[data-testid="tweetText"]');
-    const text = el ? el.innerText.trim() : "";
+    // IMPORTANT: use textContent, not innerText. While the overlay is up the
+    // native feed is visibility:hidden, and innerText returns "" for hidden
+    // elements — which is why captions never showed. textContent ignores
+    // visibility and gives us the words regardless.
+    const text = el ? el.textContent.trim() : "";
 
-    // We always capture text (even when hidden) so the toggle can reveal it
-    // later without needing to re-harvest. Skip only truly empty posts.
     if (imgs.length === 0 && !text) return null;
 
     return { id, imgs, text };
   }
+
+  // X's own bookmark / repost icons so the actions feel native.
+  const ICONS = {
+    bookmark:
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4.5C4 3.12 5.119 2 6.5 2h11C18.881 2 20 3.12 20 4.5v18.44l-8-5.71-8 5.71V4.5zM6.5 4c-.276 0-.5.22-.5.5v14.56l6-4.29 6 4.29V4.5c0-.28-.224-.5-.5-.5h-11z"></path></svg>',
+    bookmarkFilled:
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4.5C4 3.12 5.119 2 6.5 2h11C18.881 2 20 3.12 20 4.5v18.44l-8-5.71-8 5.71V4.5z"></path></svg>',
+    repost:
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 3.88l4.432 4.14-1.364 1.46L5.5 7.55V16c0 1.1.896 2 2 2H13v2H7.5c-2.209 0-4-1.79-4-4V7.55L1.432 9.48.068 8.02 4.5 3.88zM16.5 6H11V4h5.5c2.209 0 4 1.79 4 4v8.45l2.068-1.93 1.364 1.46-4.432 4.14-4.432-4.14 1.364-1.46 2.068 1.93V8c0-1.1-.896-2-2-2z"></path></svg>',
+  };
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -207,7 +219,7 @@
 
       byId.set(data.id, data);
       cards.push(data);
-      if (cfg.layout === "pinterest") stage.appendChild(buildPinterestCard(data));
+      if (cfg.layout === "pinterest") placePinterest(data);
       else renderFocus();
       hideEmpty();
     }
@@ -216,19 +228,53 @@
       document.querySelectorAll('article[data-testid="tweet"]').forEach((a) => ingest(a));
     }
 
-    // ---- shared card pieces ----
-    function galleryEl(card) {
-      const g = document.createElement("div");
-      g.className = "zf-gallery zf-badge";
-      if (card.imgs.length > 1) g.setAttribute("data-count", `1/${card.imgs.length}`);
-      card.imgs.forEach((src) => {
-        const img = document.createElement("img");
-        img.loading = "lazy";
-        img.src = src;
-        img.referrerPolicy = "no-referrer";
-        g.appendChild(img);
+    // ---- media carousel (one image at a time; handles multi-image posts) ----
+    function mediaEl(card, big) {
+      const wrap = document.createElement("div");
+      wrap.className = "zf-media";
+      if (!card.imgs.length) return wrap;
+
+      let idx = 0;
+      const img = document.createElement("img");
+      img.loading = "lazy";
+      img.referrerPolicy = "no-referrer";
+      wrap.appendChild(img);
+
+      const multi = card.imgs.length > 1;
+      let badge = null;
+      const update = () => {
+        idx = Math.max(0, Math.min(idx, card.imgs.length - 1));
+        img.src = card.imgs[idx];
+        if (badge) badge.textContent = `${idx + 1}/${card.imgs.length}`;
+      };
+
+      // Drop broken images; if a card ends up with nothing to show, remove it.
+      img.addEventListener("error", () => {
+        card.imgs.splice(idx, 1);
+        if (card.imgs.length) update();
+        else if (!card.text && card._node && card._node.isConnected) card._node.remove();
       });
-      return g;
+
+      if (multi) {
+        wrap.classList.add("zf-multi");
+        badge = document.createElement("span");
+        badge.className = "zf-count-badge";
+        const arrow = (cls, txt, d) => {
+          const b = document.createElement("button");
+          b.type = "button";
+          b.className = cls;
+          b.textContent = txt;
+          b.addEventListener("click", (e) => {
+            e.stopPropagation();
+            idx = (idx + d + card.imgs.length) % card.imgs.length;
+            update();
+          });
+          return b;
+        };
+        wrap.append(badge, arrow("zf-car zf-car-prev", "‹", -1), arrow("zf-car zf-car-next", "›", 1));
+      }
+      update();
+      return wrap;
     }
 
     function textEl(card) {
@@ -239,61 +285,97 @@
       return t;
     }
 
-    function flash(btn, label) {
-      const prev = btn.dataset.label;
-      btn.textContent = label;
+    // ---- actions ----
+    function markDone(btn, kind, result) {
+      if (kind === "bookmark" && result === "saved") {
+        btn.querySelector("svg").outerHTML = ICONS.bookmarkFilled;
+      }
       btn.classList.add("zf-done");
-      setTimeout(() => {
-        btn.textContent = prev;
-        btn.classList.remove("zf-done");
-      }, 1400);
+      setTimeout(() => btn.classList.remove("zf-done"), 1200);
     }
 
-    function actionsEl(card) {
+    function iconBtn(kind, card, withLabel) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = withLabel ? "zf-big-btn" : "zf-icon-btn";
+      b.title = kind === "bookmark" ? "Save" : "Repost";
+      b.innerHTML = ICONS[kind] + (withLabel ? `<span>${kind === "bookmark" ? "Save" : "Repost"}</span>` : "");
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const r = act(card.id, kind);
+        markDone(b, kind, r);
+      });
+      return b;
+    }
+
+    // Circular hover actions for Pinterest cards (bottom-right).
+    function hoverActions(card) {
       const row = document.createElement("div");
-      row.className = "zf-actions";
-
-      const save = document.createElement("button");
-      save.type = "button";
-      save.dataset.label = "Save";
-      save.textContent = "Save";
-      save.title = "Bookmark this post";
-      save.addEventListener("click", (e) => {
-        e.stopPropagation();
-        const r = act(card.id, "bookmark");
-        flash(save, r === "saved" ? "Saved ✓" : "Opened ↗");
-      });
-
-      const rt = document.createElement("button");
-      rt.type = "button";
-      rt.dataset.label = "Repost";
-      rt.textContent = "Repost";
-      rt.title = "Repost this post";
-      rt.addEventListener("click", (e) => {
-        e.stopPropagation();
-        act(card.id, "repost");
-        flash(rt, "Repost ↗");
-      });
-
-      row.append(save, rt);
+      row.className = "zf-hover-actions";
+      row.append(iconBtn("repost", card, false), iconBtn("bookmark", card, false));
       return row;
     }
 
-    // ---- pinterest ----
+    // Bigger labeled actions for Focus.
+    function focusActions(card) {
+      const row = document.createElement("div");
+      row.className = "zf-focus-actions";
+      row.append(iconBtn("bookmark", card, true), iconBtn("repost", card, true));
+      return row;
+    }
+
+    // ---- pinterest (JS masonry: stable, fills the shortest column) ----
+    let columns = [];
+    let colHeights = [];
+
+    function columnCount() {
+      const w = (stage && stage.clientWidth) || 1180;
+      return Math.max(1, Math.min(6, Math.floor(w / 250)));
+    }
+
+    function buildColumns() {
+      stage.innerHTML = "";
+      columns = [];
+      const n = columnCount();
+      colHeights = new Array(n).fill(0);
+      for (let i = 0; i < n; i++) {
+        const c = document.createElement("div");
+        c.className = "zf-col";
+        stage.appendChild(c);
+        columns.push(c);
+      }
+    }
+
     function buildPinterestCard(card) {
       const c = document.createElement("div");
       c.className = "zf-card" + (card.imgs.length === 0 ? " zf-textonly" : "");
-      if (card.imgs.length) c.appendChild(galleryEl(card));
+      c.appendChild(mediaEl(card));
       const t = textEl(card);
       if (t) c.appendChild(t);
-      c.appendChild(actionsEl(card));
+      c.appendChild(hoverActions(card));
       card._node = c;
       return c;
     }
 
+    function placePinterest(card) {
+      if (!columns.length) buildColumns();
+      const node = buildPinterestCard(card);
+      // Choose the shortest column using a running height estimate so cards
+      // land row-by-row instead of reflowing left-to-right.
+      let i = 0;
+      for (let k = 1; k < colHeights.length; k++) if (colHeights[k] < colHeights[i]) i = k;
+      columns[i].appendChild(node);
+      const est = 320;
+      colHeights[i] += est;
+      const img = node.querySelector("img");
+      const correct = () => { colHeights[i] += (node.offsetHeight || est) - est; };
+      if (img && !img.complete) img.addEventListener("load", correct, { once: true });
+      else correct();
+    }
+
     function renderPinterestAll() {
-      stage.innerHTML = "";
-      cards.forEach((card) => stage.appendChild(buildPinterestCard(card)));
+      buildColumns();
+      cards.forEach((card) => placePinterest(card));
       hideEmpty();
     }
 
@@ -312,10 +394,10 @@
 
       const wrap = document.createElement("div");
       wrap.className = "zf-focus-card";
-      if (card.imgs.length) wrap.appendChild(galleryEl(card));
+      wrap.appendChild(mediaEl(card, true));
       const t = textEl(card);
       if (t) wrap.appendChild(t);
-      wrap.appendChild(actionsEl(card));
+      wrap.appendChild(focusActions(card));
       stage.appendChild(wrap);
 
       const nav = document.createElement("div");
@@ -352,10 +434,27 @@
       el.scrollTo({ top: 0 });
     }
 
+    function typingInField() {
+      const a = document.activeElement;
+      return a && (/^(input|textarea)$/i.test(a.tagName) || a.isContentEditable);
+    }
+
     function onKey(e) {
-      if (!active || cfg.layout !== "focus") return;
+      if (!active || cfg.layout !== "focus" || typingInField()) return;
+      const card = cards[focusIndex];
       if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); go(1); }
       else if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); go(-1); }
+      else if (e.key === "s" || e.key === "S") { if (card) act(card.id, "bookmark"); }
+      else if (e.key === "r" || e.key === "R") { if (card) act(card.id, "repost"); }
+    }
+
+    let resizeT = 0;
+    function onResize() {
+      if (cfg.layout !== "pinterest") return;
+      clearTimeout(resizeT);
+      resizeT = setTimeout(() => {
+        if (columnCount() !== columns.length) renderPinterestAll();
+      }, 200);
     }
 
     // ---- empty state ----
@@ -452,6 +551,7 @@
       io.observe(sentinel);
 
       document.addEventListener("keydown", onKey, true);
+      window.addEventListener("resize", onResize);
       scanAll();
       pumpUntil(FILL[cfg.layout] || 12); // front-load so the grid fills
     }
@@ -461,6 +561,7 @@
       if (observer) { observer.disconnect(); observer = null; }
       if (io) { io.disconnect(); io = null; }
       document.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("resize", onResize);
       if (el) el.style.display = "none";
       active = false;
     }

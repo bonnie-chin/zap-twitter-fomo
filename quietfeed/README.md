@@ -26,8 +26,15 @@ Everything is toggleable from the popup (click the toolbar icon):
 
 The **messages FAB / drawer is always kept** and floats above everything, so you
 never lose your DMs. You can still **save (bookmark)** and **repost** any post in
-every view — in Minimal those buttons stay on the post; in Pinterest/Focus each
-card gets its own **Save** / **Repost** buttons.
+every view, using X's own icons:
+- **Minimal** keeps the native repost/bookmark buttons on each post.
+- **Pinterest** shows two circular icon buttons in the bottom-right of a card
+  when you hover it.
+- **Focus** has large labeled **Save** / **Repost** buttons, or just press
+  **`s`** to save and **`r`** to repost the post you're looking at.
+
+Posts with multiple images become a **carousel** (one image at a time with a
+`1/n` counter and arrows) instead of a tall stack.
 
 ## The dock
 
