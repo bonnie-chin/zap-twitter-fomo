@@ -174,28 +174,71 @@
     return link ? link.closest("article") : null;
   }
 
-  // Save / repost a post by id. Works from any view.
-  function act(id, kind) {
-    if (kind === "repost") {
-      // Intent popup is reliable regardless of feed virtualization.
-      window.open(
-        `https://twitter.com/intent/retweet?tweet_id=${id}`,
-        "zf_repost",
-        "width=600,height=560,noopener"
-      );
-      return "opened";
+  // --- Real save / repost, no navigation ---
+  function getCookie(name) {
+    const m = document.cookie.match(new RegExp("(?:^|; )" + name + "=([^;]*)"));
+    return m ? decodeURIComponent(m[1]) : null;
+  }
+
+  // Public web-app bearer token + the session's CSRF cookie let us call X's
+  // own GraphQL endpoints for tweets that have scrolled out of the DOM.
+  const X_BEARER =
+    "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA";
+  const QID = { bookmark: "aoDbu3RHznuiSkQ9aNM67Q", retweet: "ojPdsZsimiJrUGLR1sjUtA" };
+
+  async function xGraphql(queryId, name, variables) {
+    const ct0 = getCookie("ct0");
+    if (!ct0) return false;
+    try {
+      const res = await fetch(`https://x.com/i/api/graphql/${queryId}/${name}`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${X_BEARER}`,
+          "x-csrf-token": ct0,
+          "content-type": "application/json",
+          "x-twitter-auth-type": "OAuth2Session",
+          "x-twitter-active-user": "yes",
+        },
+        credentials: "include",
+        body: JSON.stringify({ variables, queryId }),
+      });
+      return res.ok;
+    } catch (e) {
+      return false;
     }
+  }
+
+  // Wait for X's repost confirmation menu, then click "Repost".
+  function clickRetweetConfirm() {
+    return new Promise((resolve) => {
+      let tries = 0;
+      const t = setInterval(() => {
+        const c = document.querySelector('[data-testid="retweetConfirm"]');
+        if (c) { clearInterval(t); c.click(); resolve(true); }
+        else if (++tries > 24) { clearInterval(t); resolve(false); }
+      }, 50);
+    });
+  }
+
+  // Perform the action for real. Prefers the native button (always current);
+  // falls back to X's API so it also works for tweets no longer in the DOM.
+  async function act(id, kind) {
+    const art = findArticle(id);
     if (kind === "bookmark") {
-      const art = findArticle(id);
-      const btn = art && art.querySelector('[data-testid="bookmark"], [data-testid="removeBookmark"]');
-      if (btn) {
-        btn.click();
-        return "saved";
-      }
-      // Not in the DOM anymore — open the post so it can be bookmarked there.
-      window.open(`https://x.com/i/web/status/${id}`, "_blank", "noopener");
-      return "opened";
+      const add = art && art.querySelector('[data-testid="bookmark"]');
+      if (add) { add.click(); return "done"; }
+      if (art && art.querySelector('[data-testid="removeBookmark"]')) return "done"; // already saved
+      return (await xGraphql(QID.bookmark, "CreateBookmark", { tweet_id: id })) ? "done" : "fail";
     }
+    if (kind === "repost") {
+      const rt = art && art.querySelector('[data-testid="retweet"]');
+      if (rt) { rt.click(); return (await clickRetweetConfirm()) ? "done" : "fail"; }
+      if (art && art.querySelector('[data-testid="unretweet"]')) return "done"; // already reposted
+      return (await xGraphql(QID.retweet, "CreateRetweet", { tweet_id: id, dark_request: false }))
+        ? "done"
+        : "fail";
+    }
+    return "fail";
   }
 
   // ---------------------------------------------------------------------
@@ -271,42 +314,51 @@
       document.querySelectorAll('article[data-testid="tweet"]').forEach((a) => ingest(a));
     }
 
-    // Configure a <video> for our muted, looping, hover-controls playback.
-    function dressVideo(v) {
+    // Configure a <video>. mode: "feed" (muted autoplay on screen, no controls
+    // — click opens the modal), "focus"/"modal" (controls, playable, with sound
+    // in the modal).
+    function dressVideo(v, mode) {
       v.className = "zf-slide";
-      v.muted = true;
       v.loop = true;
       v.playsInline = true;
-      v.controls = false;
       v.setAttribute("controlslist", "nodownload noplaybackrate noremoteplayback");
-      v.addEventListener("mouseenter", () => { v.controls = true; });
-      v.addEventListener("mouseleave", () => { v.controls = false; });
-      if (videoIO) videoIO.observe(v); // only on-screen videos actually play
+      if (mode === "modal") {
+        v.muted = false;
+        v.controls = true;
+        const p = v.play(); // opened via a click, so playback is allowed
+        if (p) p.catch(() => {});
+      } else {
+        v.muted = true;
+        v.controls = mode === "focus";
+        if (videoIO) videoIO.observe(v); // only on-screen videos actually play
+      }
       return v;
     }
 
     // Build a single media slide (image, playable video, or video poster).
-    function mediaNode(item, card) {
+    function mediaNode(item, card, mode) {
       if (item.type === "video") {
-        // 1) Adopt the live native <video> if it's still in the DOM — this is
-        //    the only way to play blob/HLS clips (their stream can't be reused).
-        const art = findArticle(card.id);
-        const native = art && art.querySelector("video");
-        if (native && !native.dataset.zfAdopted) {
-          try {
-            native.dataset.zfAdopted = "1";
-            return dressVideo(native); // appendChild relocates it into our slide
-          } catch (e) { /* fall through */ }
+        // 1) In focus/modal, adopt the live native <video> if present — the only
+        //    way to play blob/HLS clips (their stream can't be reused).
+        if (mode !== "feed") {
+          const art = findArticle(card.id);
+          const native = art && art.querySelector("video");
+          if (native && !native.dataset.zfAdopted) {
+            try {
+              native.dataset.zfAdopted = "1";
+              return dressVideo(native, mode); // relocates it into our slide
+            } catch (e) { /* fall through */ }
+          }
         }
-        // 2) A direct/GIF MP4 we can autoplay in our own element.
+        // 2) A direct/GIF MP4 we can play in our own element.
         if (item.src) {
           const v = document.createElement("video");
           v.src = item.src;
           if (item.poster) v.poster = item.poster;
           v.preload = "metadata";
-          return dressVideo(v);
+          return dressVideo(v, mode);
         }
-        // 3) Fallback: a static poster (no navigation — clicking does nothing).
+        // 3) Fallback: a poster. In the feed, clicking the card opens the modal.
         const wrap = document.createElement("div");
         wrap.className = "zf-slide zf-videoposter";
         if (item.poster) {
@@ -337,14 +389,15 @@
     }
 
     // ---- media carousel: one slide at a time; handles multi-media posts ----
-    function mediaEl(card) {
+    function mediaEl(card, mode) {
+      mode = mode || "feed";
       const wrap = document.createElement("div");
       wrap.className = "zf-media";
       const items = card.media;
       if (!items.length) return wrap;
 
       let idx = 0;
-      const nodes = items.map((it) => mediaNode(it, card));
+      const nodes = items.map((it) => mediaNode(it, card, mode));
       nodes.forEach((n, i) => {
         if (i !== 0) n.style.display = "none";
         wrap.appendChild(n);
@@ -386,11 +439,16 @@
 
     // ---- actions ----
     function markDone(btn, kind, result) {
-      if (kind === "bookmark" && result === "saved") {
-        btn.querySelector("svg").outerHTML = ICONS.bookmarkFilled;
+      if (result === "fail") {
+        btn.classList.add("zf-fail");
+        setTimeout(() => btn.classList.remove("zf-fail"), 1400);
+        return;
+      }
+      if (kind === "bookmark") {
+        const svg = btn.querySelector("svg");
+        if (svg) svg.outerHTML = ICONS.bookmarkFilled;
       }
       btn.classList.add("zf-done");
-      setTimeout(() => btn.classList.remove("zf-done"), 1200);
     }
 
     function iconBtn(kind, card, withLabel) {
@@ -399,10 +457,13 @@
       b.className = withLabel ? "zf-big-btn" : "zf-icon-btn";
       b.title = kind === "bookmark" ? "Save" : "Repost";
       b.innerHTML = ICONS[kind] + (withLabel ? `<span>${kind === "bookmark" ? "Save" : "Repost"}</span>` : "");
-      b.addEventListener("click", (e) => {
+      b.addEventListener("click", async (e) => {
         e.stopPropagation();
-        const r = act(card.id, kind);
+        if (b.disabled) return;
+        b.disabled = true;
+        const r = await act(card.id, kind);
         markDone(b, kind, r);
+        if (r === "fail") b.disabled = false; // allow retry
       });
       return b;
     }
@@ -413,6 +474,55 @@
       row.className = "zf-hover-actions";
       row.append(iconBtn("repost", card, false), iconBtn("bookmark", card, false));
       return row;
+    }
+
+    // ---- modal lightbox (click a Pinterest card) ----
+    let modalEl = null;
+    let modalKeyHandler = null;
+
+    function closeModal() {
+      if (modalEl) { modalEl.remove(); modalEl = null; }
+      if (modalKeyHandler) {
+        document.removeEventListener("keydown", modalKeyHandler, true);
+        modalKeyHandler = null;
+      }
+    }
+
+    function openModal(card) {
+      closeModal();
+      modalEl = document.createElement("div");
+      modalEl.id = "zf-modal";
+      modalEl.addEventListener("click", (e) => { if (e.target === modalEl) closeModal(); });
+
+      const panel = document.createElement("div");
+      panel.className = "zf-modal-panel";
+
+      if (card.media.length) panel.appendChild(mediaEl(card, "modal"));
+
+      // Caption is always shown here for context, even if Text is off.
+      if (card.text) {
+        const t = document.createElement("div");
+        t.className = "zf-text zf-modal-text";
+        t.textContent = card.text;
+        panel.appendChild(t);
+      }
+
+      const actions = document.createElement("div");
+      actions.className = "zf-modal-actions";
+      actions.append(iconBtn("bookmark", card, true), iconBtn("repost", card, true));
+      panel.appendChild(actions);
+
+      const close = document.createElement("button");
+      close.className = "zf-modal-close";
+      close.setAttribute("aria-label", "Close");
+      close.textContent = "✕";
+      close.addEventListener("click", closeModal);
+
+      modalEl.append(panel, close);
+      document.body.appendChild(modalEl);
+
+      modalKeyHandler = (e) => { if (e.key === "Escape") { e.preventDefault(); closeModal(); } };
+      document.addEventListener("keydown", modalKeyHandler, true);
     }
 
     // ---- pinterest (JS masonry: stable, fills the shortest column) ----
@@ -440,10 +550,12 @@
     function buildPinterestCard(card) {
       const c = document.createElement("div");
       c.className = "zf-card";
-      c.appendChild(mediaEl(card));
+      c.appendChild(mediaEl(card, "feed"));
       const t = textEl(card);
       if (t) c.appendChild(t);
       c.appendChild(hoverActions(card));
+      // Click the card (but not its action buttons / carousel arrows) → modal.
+      c.addEventListener("click", () => openModal(card));
       card._node = c;
       return c;
     }
@@ -487,7 +599,7 @@
 
       const wrap = document.createElement("div");
       wrap.className = "zf-focus-card";
-      if (card.media.length) wrap.appendChild(mediaEl(card));
+      if (card.media.length) wrap.appendChild(mediaEl(card, "focus"));
       const t = textEl(card);
       if (t) wrap.appendChild(t);
       stage.appendChild(wrap);
@@ -571,15 +683,18 @@
     // ---- drive the (hidden) native feed to load more ----
     // `target` is a count of VISIBLE cards (image posts, or text posts when
     // Text is on) — text-only posts don't count, so the wall actually fills.
-    const HARVEST_CAP = 600; // safety stop so we never scroll forever
+    const HARVEST_CAP = 1500; // safety stop so we never scroll forever
     let pumpTarget = 0;
-    async function pumpUntil(target, maxStagnant = 10) {
+    const kick = (scroller) => {
+      scroller.dispatchEvent(new Event("scroll", { bubbles: true }));
+      window.dispatchEvent(new Event("scroll"));
+    };
+    async function pumpUntil(target, maxStagnant = 6) {
       pumpTarget = Math.max(pumpTarget, target);
       if (loading || !active) return;
       loading = true;
       Dock.setLoading(true);
       try {
-        const scroller = getScroller();
         let stagnant = 0;
         while (
           active &&
@@ -587,26 +702,31 @@
           cards.length < HARVEST_CAP &&
           stagnant < maxStagnant
         ) {
+          const scroller = getScroller(); // recompute — X can swap scroll containers
           const beforeCards = cards.length;
           const beforeH = scroller.scrollHeight;
-          const beforeTop = scroller.scrollTop;
 
-          // Big steps (not a teleport) so X's virtualizer renders the tweets we
-          // pass; reaching the bottom is what trips X's next-page fetch.
-          const step = Math.max(700, scroller.clientHeight * 2.5);
-          scroller.scrollTop = Math.min(scroller.scrollHeight, scroller.scrollTop + step);
-          window.dispatchEvent(new Event("scroll"));
-
-          await sleep(450);
+          scroller.scrollTop = scroller.scrollHeight; // to the bottom → trips X's fetch
+          kick(scroller);
+          await sleep(500);
           scanAll();
 
-          const grew = cards.length > beforeCards || scroller.scrollHeight > beforeH + 20;
-          const moved = scroller.scrollTop > beforeTop + 8;
-          const atBottom =
-            scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 8;
+          let grew = cards.length > beforeCards || scroller.scrollHeight > beforeH + 20;
 
-          if (grew || moved) stagnant = 0;
-          else if (atBottom) { stagnant++; await sleep(450); }
+          // If nothing loaded, "jiggle": back up a few screens then return to the
+          // bottom so X's loader re-observes its sentinel and fetches again.
+          if (!grew) {
+            scroller.scrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight * 3);
+            kick(scroller);
+            await sleep(350);
+            scroller.scrollTop = scroller.scrollHeight;
+            kick(scroller);
+            await sleep(650);
+            scanAll();
+            grew = cards.length > beforeCards || scroller.scrollHeight > beforeH + 20;
+          }
+
+          stagnant = grew ? 0 : stagnant + 1;
         }
       } finally {
         loading = false;
@@ -622,6 +742,7 @@
     function enter() {
       if (active) {
         root.classList.add("zf-overlay-active");
+        closeModal();
         if (cfg.layout === "pinterest") renderPinterestAll();
         else renderFocus();
         pumpUntil(FILL[cfg.layout] || 12);
@@ -676,6 +797,7 @@
 
     function exit() {
       root.classList.remove("zf-overlay-active");
+      closeModal();
       if (observer) { observer.disconnect(); observer = null; }
       if (io) { io.disconnect(); io = null; }
       if (videoIO) { videoIO.disconnect(); videoIO = null; }

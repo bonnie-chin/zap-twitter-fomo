@@ -25,13 +25,21 @@ Everything is toggleable from the popup (click the toolbar icon):
 | **Side panels** | Hides the left nav and the right sidebar (trends, who-to-follow). |
 
 The **messages FAB / drawer is always kept** and floats above everything, so you
-never lose your DMs. You can still **save (bookmark)** and **repost** any post in
-every view, using X's own icons:
+never lose your DMs. **Save (bookmark)** and **repost** perform the real action
+on your account — they click X's native button when the post is still loaded, and
+otherwise call X's own API with your session, so they work even for posts that
+have scrolled away. (They never navigate you off the page.)
 - **Minimal** keeps the native repost/bookmark buttons on each post.
 - **Pinterest** shows two circular icon buttons in the bottom-right of a card
   when you hover it.
-- **Focus** has large labeled **Save** / **Repost** buttons, or just press
-  **`s`** to save and **`r`** to repost the post you're looking at.
+- **Focus** has Save / Repost in the bottom bar (or press **`s`** / **`r`**).
+
+## Expanding a post (Pinterest)
+
+Click any Pinterest card to open a **modal lightbox**: the media larger, the
+caption for context, and Save / Repost. Videos play here (with sound and
+controls); use the carousel arrows to page through multi-media posts. Click the
+backdrop, the ✕, or press **Esc** to close.
 
 Posts with multiple images/videos become a **carousel** (one at a time with a
 `1/n` counter and arrows) instead of a tall stack.
