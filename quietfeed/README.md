@@ -26,9 +26,10 @@ Everything is toggleable from the popup (click the toolbar icon):
 
 The **messages FAB / drawer is always kept** and floats above everything, so you
 never lose your DMs. **Like**, **save (bookmark)**, and **repost** perform the
-real action on your account — they click X's native button when the post is still
-loaded, and otherwise call X's own API with your session, so they work even for
-posts that have scrolled away. (They never navigate you off the page.)
+real action on your account by clicking X's own native button — if the post has
+scrolled out of view, Quietfeed briefly scrolls the hidden feed back to it (same
+trick as video recall) and clicks it there. **Press again to un-like / un-save /
+un-repost.** They never navigate you off the page.
 - **Minimal** keeps the native like / repost / bookmark buttons on each post.
 - **Pinterest** shows circular Like / Repost / Save buttons in the bottom-right
   of a card when you hover it.
@@ -56,6 +57,9 @@ stream), so when you **open a card in the modal** or **land on it in Focus**,
 Quietfeed briefly scrolls X's hidden feed back to that post to re-render its
 real player and adopts it — then it plays with sound and controls. Only
 on-screen videos actually play, so a wall of clips stays light.
+
+Switching modes keeps your place: whatever post you're on carries over, so
+jumping Focus → Pinterest → Minimal lands you on (roughly) the same post.
 
 ## Where it runs
 

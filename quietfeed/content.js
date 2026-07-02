@@ -21,6 +21,10 @@
 
   const root = document.documentElement;
 
+  // The post the user is currently looking at, so switching modes lands on it.
+  // { id, nativeTop }
+  let anchor = null;
+
   // ---------------------------------------------------------------------
   // Settings
   // ---------------------------------------------------------------------
@@ -85,9 +89,38 @@
 
     const wantOverlay = on && (cfg.layout === "pinterest" || cfg.layout === "focus");
     if (wantOverlay) Overlay.enter();
-    else Overlay.exit();
+    else {
+      Overlay.exit();
+      if (on && cfg.layout === "minimal") requestAnimationFrame(alignMinimal);
+    }
 
     Dock.update(on);
+  }
+
+  // Scroll the native feed to the anchor post (used when entering Minimal).
+  function alignMinimal() {
+    if (!anchor || anchor.nativeTop == null) return;
+    const scroller = getScroller();
+    scroller.scrollTop = Math.max(0, anchor.nativeTop - 60);
+  }
+
+  // Track the top-most visible tweet as the anchor while in Minimal.
+  let minimalScrollThrottled = false;
+  function onMinimalScroll() {
+    if (minimalScrollThrottled) return;
+    if (!cfg.enabled || cfg.layout !== "minimal" || !isActivePage()) return;
+    minimalScrollThrottled = true;
+    requestAnimationFrame(() => { minimalScrollThrottled = false; });
+    let best = null;
+    let bestTop = Infinity;
+    document.querySelectorAll('article[data-testid="tweet"]').forEach((a) => {
+      const r = a.getBoundingClientRect();
+      if (r.bottom > 120 && r.top < bestTop) { bestTop = r.top; best = a; }
+    });
+    if (best) {
+      const id = statusId(best);
+      if (id) anchor = { id, nativeTop: nativeOffset(best) };
+    }
   }
 
   // ---------------------------------------------------------------------
@@ -144,12 +177,7 @@
     const liked = !!article.querySelector('[data-testid="unlike"]');
     const reposted = !!article.querySelector('[data-testid="unretweet"]');
 
-    // For video posts, remember where the tweet sits in X's virtual list so we
-    // can scroll back to it later and adopt its live player (see recall()).
-    const hasVideo = media.some((m) => m.type === "video");
-    const nativeTop = hasVideo ? nativeOffset(article) : null;
-
-    return { id, media, text, saved, liked, reposted, nativeTop };
+    return { id, media, text, saved, liked, reposted, nativeTop: null };
   }
 
   // Absolute scroll offset of a tweet's cell within X's scroll container.
@@ -205,137 +233,16 @@
     return link ? link.closest("article") : null;
   }
 
-  // --- Real save / repost, no navigation ---
-  function getCookie(name) {
-    const m = document.cookie.match(new RegExp("(?:^|; )" + name + "=([^;]*)"));
-    return m ? decodeURIComponent(m[1]) : null;
-  }
-
-  // Public web-app bearer token + the session's CSRF cookie let us call X's
-  // own GraphQL endpoints for tweets that have scrolled out of the DOM.
-  const X_BEARER =
-    "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA";
-  const OP = { bookmark: "CreateBookmark", repost: "CreateRetweet", like: "FavoriteTweet" };
-
-  // Query IDs change when X ships new JS, so we DISCOVER them from X's own
-  // bundles instead of hardcoding. Cached, and re-discovered if one goes stale.
-  let QID = null;
-  let qidPromise = null;
-
-  async function discoverQIDs() {
-    const found = {};
-    const srcs = [...document.scripts]
-      .map((s) => s.src)
-      .filter((s) => s && /twimg\.com\/responsive-web\/client-web/.test(s));
-    for (const url of srcs) {
-      if (Object.keys(found).length >= 3) break;
-      let text = "";
-      try {
-        text = await new Promise((res) =>
-          chrome.runtime.sendMessage({ type: "zf:fetchText", url }, (r) => res(r || ""))
-        );
-      } catch (e) { continue; }
-      if (!text) continue;
-      for (const key of Object.keys(OP)) {
-        if (found[key]) continue;
-        const op = OP[key];
-        const m =
-          text.match(new RegExp('queryId:"([a-zA-Z0-9_-]+)",operationName:"' + op + '"')) ||
-          text.match(new RegExp('operationName:"' + op + '"[^}]{0,240}?queryId:"([a-zA-Z0-9_-]+)"'));
-        if (m) found[key] = m[1];
-      }
-    }
-    return found;
-  }
-
-  async function ensureQIDs(force) {
-    if (QID && !force) return QID;
-    if (qidPromise && !force) return qidPromise;
-    qidPromise = (async () => {
-      const found = await discoverQIDs();
-      QID = { ...(QID || {}), ...found };
-      try { chrome.storage.local.set({ zfQID: QID }); } catch (e) {}
-      return QID;
-    })();
-    const r = await qidPromise;
-    qidPromise = null;
-    return r;
-  }
-  // Seed from cache so the first action is instant when IDs haven't changed.
-  try {
-    chrome.storage.local.get({ zfQID: null }, (r) => { if (r && r.zfQID) QID = r.zfQID; });
-  } catch (e) {}
-
-  async function postGraphql(queryId, name, variables) {
-    if (!queryId) return null;
-    const ct0 = getCookie("ct0");
-    if (!ct0) return null;
-    try {
-      const res = await fetch(`https://x.com/i/api/graphql/${queryId}/${name}`, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${X_BEARER}`,
-          "x-csrf-token": ct0,
-          "content-type": "application/json",
-          "x-twitter-auth-type": "OAuth2Session",
-          "x-twitter-active-user": "yes",
-        },
-        credentials: "include",
-        body: JSON.stringify({ variables, queryId }),
-      });
-      return res.ok;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  // Call an action endpoint, re-discovering the query ID once if it's stale.
-  async function xAction(key, variables) {
-    const name = OP[key];
-    let ids = await ensureQIDs(false);
-    let ok = await postGraphql(ids[key], name, variables);
-    if (ok === null || ok === false) {
-      ids = await ensureQIDs(true); // force fresh discovery, then retry once
-      ok = await postGraphql(ids[key], name, variables);
-    }
-    return !!ok;
-  }
-
-  // Wait for X's repost confirmation menu, then click "Repost".
-  function clickRetweetConfirm() {
+  // Wait for a menu item (e.g. the repost confirmation) to appear, then click.
+  function clickMenuItem(testid, tries = 24) {
     return new Promise((resolve) => {
-      let tries = 0;
+      let n = 0;
       const t = setInterval(() => {
-        const c = document.querySelector('[data-testid="retweetConfirm"]');
+        const c = document.querySelector(`[data-testid="${testid}"]`);
         if (c) { clearInterval(t); c.click(); resolve(true); }
-        else if (++tries > 24) { clearInterval(t); resolve(false); }
+        else if (++n > tries) { clearInterval(t); resolve(false); }
       }, 50);
     });
-  }
-
-  // Perform the action for real. Prefers the native button (always current);
-  // falls back to X's API so it also works for tweets no longer in the DOM.
-  async function act(id, kind) {
-    const art = findArticle(id);
-    if (kind === "bookmark") {
-      const add = art && art.querySelector('[data-testid="bookmark"]');
-      if (add) { add.click(); return "done"; }
-      if (art && art.querySelector('[data-testid="removeBookmark"]')) return "done"; // already saved
-      return (await xAction("bookmark", { tweet_id: id })) ? "done" : "fail";
-    }
-    if (kind === "repost") {
-      const rt = art && art.querySelector('[data-testid="retweet"]');
-      if (rt) { rt.click(); return (await clickRetweetConfirm()) ? "done" : "fail"; }
-      if (art && art.querySelector('[data-testid="unretweet"]')) return "done"; // already reposted
-      return (await xAction("repost", { tweet_id: id, dark_request: false })) ? "done" : "fail";
-    }
-    if (kind === "like") {
-      const lk = art && art.querySelector('[data-testid="like"]');
-      if (lk) { lk.click(); return "done"; }
-      if (art && art.querySelector('[data-testid="unlike"]')) return "done"; // already liked
-      return (await xAction("like", { tweet_id: id })) ? "done" : "fail";
-    }
-    return "fail";
   }
 
   // ---------------------------------------------------------------------
@@ -398,6 +305,9 @@
         return;
       }
 
+      // Remember where this tweet sits in X's virtual list so we can scroll
+      // back to it later (to act on it, adopt its video, or sync scroll).
+      data.nativeTop = nativeOffset(article);
       byId.set(data.id, data);
       cards.push(data);
       if (!isVisible(data)) return; // keep it (Text toggle may reveal it) but don't render an empty card
@@ -437,43 +347,83 @@
       return v;
     }
 
-    // "Recall" a streaming video: scroll X's hidden feed back to the tweet's
-    // remembered position so X re-renders it, then hand back its live <video>
-    // (whose MSE stream can't be reconstructed any other way). Behind the
-    // overlay, so invisible. Returns the element, or null if unrecoverable.
+    // Run `fn(article)` with the tweet's native <article> rendered — using it
+    // if it's already in the DOM, otherwise scrolling X's hidden feed back to
+    // the tweet's remembered position so X re-renders it. `fn` runs WHILE it's
+    // rendered (before we restore the scroll), so it can click native buttons
+    // or detach the live <video>. Invisible (behind the overlay). Serialized.
     let recalling = false;
-    async function recall(card) {
-      if (card.nativeTop == null || !active) return null;
-      const cur = findArticle(card.id);
-      if (cur) { const v = cur.querySelector("video"); if (v) return v; }
-      // Wait for any in-flight loader pass to finish so we don't fight it.
-      let waited = 0;
-      while (loading && waited < 2000) { await sleep(100); waited += 100; }
+    async function withRenderedTweet(card, fn) {
       if (recalling || !active) return null;
       recalling = true;
-      const scroller = getScroller();
-      const saved = scroller.scrollTop;
       try {
-        for (let i = 0; i < 12 && active; i++) {
-          const nudge = i === 0 ? 0 : (i % 2 ? 1 : -1) * scroller.clientHeight * 0.25 * Math.ceil(i / 2);
-          scroller.scrollTop = Math.max(0, card.nativeTop - scroller.clientHeight * 0.35 + nudge);
+        // Let any in-flight loader pass finish so we don't fight over the scroll.
+        let waited = 0;
+        while (loading && waited < 2000) { await sleep(100); waited += 100; }
+
+        let art = findArticle(card.id);
+        if (art) return await fn(art);
+        if (card.nativeTop == null) return null;
+
+        const scroller = getScroller();
+        const saved = scroller.scrollTop;
+        try {
+          for (let i = 0; i < 14 && active; i++) {
+            const nudge = i === 0 ? 0 : (i % 2 ? 1 : -1) * scroller.clientHeight * 0.25 * Math.ceil(i / 2);
+            scroller.scrollTop = Math.max(0, card.nativeTop - scroller.clientHeight * 0.35 + nudge);
+            window.dispatchEvent(new Event("scroll"));
+            await sleep(90);
+            art = findArticle(card.id);
+            if (art) return await fn(art); // finally (below) restores scroll after fn resolves
+          }
+          return null;
+        } finally {
+          scroller.scrollTop = saved;
           window.dispatchEvent(new Event("scroll"));
-          await sleep(90);
-          const art = findArticle(card.id);
-          const v = art && art.querySelector("video");
-          if (v) {
-            // Detach now so restoring the scroll (below) can't let X recycle it.
-            v.dataset.zfAdopted = "1";
-            v.remove();
-            return v;
+        }
+      } finally {
+        recalling = false;
+      }
+    }
+
+    // Recall a streaming video's live <video> (detached so restoring the scroll
+    // can't let X recycle it).
+    function recall(card) {
+      return withRenderedTweet(card, (art) => {
+        const v = art.querySelector("video");
+        if (!v) return null;
+        v.dataset.zfAdopted = "1";
+        v.remove();
+        return v;
+      });
+    }
+
+    // Perform a like/save/repost by clicking X's native button (bringing the
+    // tweet into the DOM first if needed). Toggles, and returns the NEW state
+    // (true/false) or null if it couldn't be done.
+    function doAction(card, kind) {
+      return withRenderedTweet(card, async (art) => {
+        const q = (s) => art.querySelector(s);
+        if (kind === "bookmark") {
+          if (q('[data-testid="bookmark"]')) { q('[data-testid="bookmark"]').click(); return true; }
+          if (q('[data-testid="removeBookmark"]')) { q('[data-testid="removeBookmark"]').click(); return false; }
+        } else if (kind === "like") {
+          if (q('[data-testid="like"]')) { q('[data-testid="like"]').click(); return true; }
+          if (q('[data-testid="unlike"]')) { q('[data-testid="unlike"]').click(); return false; }
+        } else if (kind === "repost") {
+          if (q('[data-testid="retweet"]')) {
+            q('[data-testid="retweet"]').click();
+            await clickMenuItem("retweetConfirm");
+            return true;
+          }
+          if (q('[data-testid="unretweet"]')) {
+            q('[data-testid="unretweet"]').click();
+            await clickMenuItem("unretweetConfirm");
+            return false;
           }
         }
         return null;
-      } finally {
-        scroller.scrollTop = saved;
-        window.dispatchEvent(new Event("scroll"));
-        recalling = false;
-      }
+      });
     }
 
     // After rendering a single-video card that fell back to a poster, try to
@@ -617,11 +567,11 @@
 
       b.addEventListener("click", async (e) => {
         e.stopPropagation();
-        if (b.disabled || card[field]) return; // already done — no accidental undo
+        if (b.disabled) return;
         b.disabled = true;
-        const r = await act(card.id, kind);
-        if (r === "done") { card[field] = true; paint(); }
-        else { b.classList.add("zf-fail"); setTimeout(() => b.classList.remove("zf-fail"), 1400); }
+        const r = await doAction(card, kind); // toggles; returns new state or null
+        if (r === null) { b.classList.add("zf-fail"); setTimeout(() => b.classList.remove("zf-fail"), 1400); }
+        else { card[field] = r; paint(); }
         b.disabled = false;
       });
       return b;
@@ -758,6 +708,7 @@
       focusIndex = Math.max(0, Math.min(focusIndex, focusList.length - 1));
       const card = focusList[focusIndex];
       card._node = null;
+      anchor = { id: card.id, nativeTop: card.nativeTop }; // remember for mode switches
 
       const wrap = document.createElement("div");
       wrap.className = "zf-focus-card";
@@ -815,8 +766,8 @@
 
     function kbdAct(card, kind) {
       const field = STATE_FIELD[kind];
-      if (!card || card[field]) return;
-      act(card.id, kind).then((r) => { if (r === "done") { card[field] = true; renderFocus(); } });
+      if (!card) return;
+      doAction(card, kind).then((r) => { if (r !== null) { card[field] = r; renderFocus(); } });
     }
 
     function onKey(e) {
@@ -920,6 +871,37 @@
       requestAnimationFrame(() => { scrollThrottled = false; });
       const remaining = el.scrollHeight - el.scrollTop - el.clientHeight;
       if (remaining < el.clientHeight * 3) prefetch();
+      if (cfg.layout === "pinterest") trackPinterestAnchor();
+    }
+
+    // Anchor = the top-most card currently in view (for mode-switch sync).
+    function trackPinterestAnchor() {
+      const top = el.getBoundingClientRect().top + 90; // clear the dock
+      let best = null;
+      let bestTop = Infinity;
+      for (const card of visibleCards()) {
+        const n = card._node;
+        if (!n || !n.isConnected) continue;
+        const r = n.getBoundingClientRect();
+        if (r.bottom > top && r.top < bestTop) { bestTop = r.top; best = card; }
+      }
+      if (best) anchor = { id: best.id, nativeTop: best.nativeTop };
+    }
+
+    function alignFocusToAnchor() {
+      if (!anchor) return;
+      const i = visibleCards().findIndex((c) => c.id === anchor.id);
+      if (i >= 0) focusIndex = i;
+    }
+
+    function alignPinterestToAnchor() {
+      if (!anchor) return;
+      const card = byId.get(anchor.id);
+      if (card && card._node && card._node.isConnected) {
+        const top =
+          card._node.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop - 80;
+        el.scrollTo({ top: Math.max(0, top) });
+      }
     }
 
     // ---------------------------------------------------------------------
@@ -927,8 +909,13 @@
       if (active) {
         root.classList.add("zf-overlay-active");
         closeModal();
-        if (cfg.layout === "pinterest") renderPinterestAll();
-        else renderFocus();
+        if (cfg.layout === "pinterest") {
+          renderPinterestAll();
+          requestAnimationFrame(alignPinterestToAnchor);
+        } else {
+          alignFocusToAnchor();
+          renderFocus();
+        }
         pumpUntil(FILL[cfg.layout] || 12);
         return;
       }
@@ -977,6 +964,9 @@
       window.addEventListener("resize", onResize);
       el.addEventListener("scroll", onOverlayScroll, { passive: true });
       scanAll();
+      // Land on the post we were just looking at, if we've harvested it.
+      if (cfg.layout === "focus") { alignFocusToAnchor(); renderFocus(); }
+      else requestAnimationFrame(alignPinterestToAnchor);
       pumpUntil(FILL[cfg.layout] || 12); // front-load so the grid fills
     }
 
@@ -1069,6 +1059,7 @@
   // ---------------------------------------------------------------------
   load().then(apply);
   document.addEventListener("DOMContentLoaded", apply); // ensure dock builds
+  window.addEventListener("scroll", onMinimalScroll, { passive: true }); // anchor tracking in Minimal
 
   // X is a SPA — re-apply on route changes so we activate only on the main
   // timeline and back off the moment you click into a post.

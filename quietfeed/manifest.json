@@ -4,8 +4,7 @@
   "version": "1.0.0",
   "description": "Strip the social pressure out of X/Twitter. No like counts, no views, no usernames, no timestamps — just the work. Minimal, Pinterest, and Focus views.",
   "permissions": ["storage"],
-  "host_permissions": ["*://x.com/*", "*://twitter.com/*", "*://*.twimg.com/*"],
-  "background": { "service_worker": "background.js" },
+  "host_permissions": ["*://x.com/*", "*://twitter.com/*"],
   "action": {
     "default_popup": "popup.html",
     "default_title": "Quietfeed"
