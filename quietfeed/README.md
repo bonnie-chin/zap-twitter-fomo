@@ -50,11 +50,12 @@ these are the visual modes. The **Text** toggle then shows or hides the caption
 *on those cards* (it doesn't flood the wall with text-only posts). The loader
 keeps pulling the feed until it has enough media posts to fill the wall.
 
-**Videos** play **muted and looping**, and only while they're on screen (so a
-wall of clips stays light); **hover for playback controls**. GIFs play inline,
-and regular clips play when their native player is still loaded. Streaming
-videos whose player has scrolled out of the feed show their thumbnail with a ▶
-(they don't navigate anywhere on click).
+**Videos**: GIFs/short clips autoplay muted in the feed. Regular streaming
+videos can't be replayed from a copied URL (X uses a single-use in-memory
+stream), so when you **open a card in the modal** or **land on it in Focus**,
+Quietfeed briefly scrolls X's hidden feed back to that post to re-render its
+real player and adopts it — then it plays with sound and controls. Only
+on-screen videos actually play, so a wall of clips stays light.
 
 ## Where it runs
 

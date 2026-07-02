@@ -144,7 +144,27 @@
     const liked = !!article.querySelector('[data-testid="unlike"]');
     const reposted = !!article.querySelector('[data-testid="unretweet"]');
 
-    return { id, media, text, saved, liked, reposted };
+    // For video posts, remember where the tweet sits in X's virtual list so we
+    // can scroll back to it later and adopt its live player (see recall()).
+    const hasVideo = media.some((m) => m.type === "video");
+    const nativeTop = hasVideo ? nativeOffset(article) : null;
+
+    return { id, media, text, saved, liked, reposted, nativeTop };
+  }
+
+  // Absolute scroll offset of a tweet's cell within X's scroll container.
+  function nativeOffset(el) {
+    const scroller = getScroller();
+    const cell = el.closest('[data-testid="cellInnerDiv"]') || el;
+    const r = cell.getBoundingClientRect();
+    const winScroll =
+      scroller === document.scrollingElement ||
+      scroller === document.documentElement ||
+      scroller === document.body;
+    const base = winScroll
+      ? window.scrollY || document.documentElement.scrollTop || 0
+      : scroller.scrollTop - scroller.getBoundingClientRect().top;
+    return Math.round(r.top + base);
   }
 
   // X's own bookmark / repost / like icons so the actions feel native.
@@ -373,6 +393,7 @@
         for (const f of ["saved", "liked", "reposted"]) {
           if (data[f] && !existing[f]) { existing[f] = true; changed = true; }
         }
+        if (data.nativeTop != null && existing.nativeTop == null) existing.nativeTop = data.nativeTop;
         if (changed) reRenderCard(existing);
         return;
       }
@@ -414,6 +435,58 @@
         if (videoIO) videoIO.observe(v); // only on-screen videos actually play
       }
       return v;
+    }
+
+    // "Recall" a streaming video: scroll X's hidden feed back to the tweet's
+    // remembered position so X re-renders it, then hand back its live <video>
+    // (whose MSE stream can't be reconstructed any other way). Behind the
+    // overlay, so invisible. Returns the element, or null if unrecoverable.
+    let recalling = false;
+    async function recall(card) {
+      if (card.nativeTop == null || !active) return null;
+      const cur = findArticle(card.id);
+      if (cur) { const v = cur.querySelector("video"); if (v) return v; }
+      // Wait for any in-flight loader pass to finish so we don't fight it.
+      let waited = 0;
+      while (loading && waited < 2000) { await sleep(100); waited += 100; }
+      if (recalling || !active) return null;
+      recalling = true;
+      const scroller = getScroller();
+      const saved = scroller.scrollTop;
+      try {
+        for (let i = 0; i < 12 && active; i++) {
+          const nudge = i === 0 ? 0 : (i % 2 ? 1 : -1) * scroller.clientHeight * 0.25 * Math.ceil(i / 2);
+          scroller.scrollTop = Math.max(0, card.nativeTop - scroller.clientHeight * 0.35 + nudge);
+          window.dispatchEvent(new Event("scroll"));
+          await sleep(90);
+          const art = findArticle(card.id);
+          const v = art && art.querySelector("video");
+          if (v) {
+            // Detach now so restoring the scroll (below) can't let X recycle it.
+            v.dataset.zfAdopted = "1";
+            v.remove();
+            return v;
+          }
+        }
+        return null;
+      } finally {
+        scroller.scrollTop = saved;
+        window.dispatchEvent(new Event("scroll"));
+        recalling = false;
+      }
+    }
+
+    // After rendering a single-video card that fell back to a poster, try to
+    // recall the real player and swap it in. mode: "focus" | "modal".
+    async function enhanceVideos(scope, card, mode) {
+      if (!card.media || card.media.length !== 1 || card.media[0].type !== "video") return;
+      const poster = scope.querySelector(".zf-videoposter");
+      if (!poster) return; // already playable (GIF / direct / adopted)
+      const v = await recall(card);
+      if (!v || !poster.isConnected) return;
+      v.dataset.zfAdopted = "1";
+      dressVideo(v, mode);
+      poster.replaceWith(v);
     }
 
     // Build a single media slide (image, playable video, or video poster).
@@ -580,7 +653,10 @@
       const panel = document.createElement("div");
       panel.className = "zf-modal-panel";
 
-      if (card.media.length) panel.appendChild(mediaEl(card, "modal"));
+      if (card.media.length) {
+        panel.appendChild(mediaEl(card, "modal"));
+        enhanceVideos(panel, card, "modal"); // recall a streaming video if needed
+      }
 
       // Caption is always shown here for context, even if Text is off.
       if (card.text) {
@@ -686,6 +762,7 @@
       const t = textEl(card);
       if (t) wrap.appendChild(t);
       stage.appendChild(wrap);
+      enhanceVideos(wrap, card, "focus"); // recall a streaming video if needed
 
       // Bottom-center bar: Save · ‹ · n/total · › · Repost
       const nav = document.createElement("div");
@@ -782,13 +859,14 @@
     };
     async function pumpUntil(target, maxStagnant = 6) {
       pumpTarget = Math.max(pumpTarget, target);
-      if (loading || !active) return;
+      if (loading || recalling || !active) return;
       loading = true;
       Dock.setLoading(true);
       try {
         let stagnant = 0;
         while (
           active &&
+          !recalling &&
           visibleCards().length < pumpTarget &&
           cards.length < HARVEST_CAP &&
           stagnant < maxStagnant
