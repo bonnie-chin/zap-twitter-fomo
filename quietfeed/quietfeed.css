@@ -98,9 +98,17 @@
   margin-left: auto !important;
   margin-right: auto !important;
 }
+/* The columns' flex parent must span the viewport and center its children. */
 .zf-enabled div:has(> [data-testid="primaryColumn"]) {
   width: 100% !important;
   justify-content: center !important;
+}
+/* ...and so must the wrapper chain from <main>, otherwise a max-width ancestor
+   keeps the lone column pinned left-of-center once the rails are hidden. */
+.zf-enabled.zf-hide-chrome main[role="main"] > div,
+.zf-enabled.zf-hide-chrome main[role="main"] > div > div {
+  width: 100% !important;
+  max-width: 100% !important;
 }
 
 /* Always keep the messages dock / FAB visible and clickable, above overlays. */
@@ -278,6 +286,22 @@
   backdrop-filter: blur(4px);
   pointer-events: none;
 }
+/* Spinner shown while we scroll X's feed back to recall the real player. */
+.zf-videoposter.zf-recalling .zf-play { display: none; }
+.zf-videoposter.zf-recalling::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 42px;
+  height: 42px;
+  margin: -21px 0 0 -21px;
+  border: 3px solid rgba(255, 255, 255, 0.25);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: zf-spin 0.8s linear infinite;
+}
+@keyframes zf-spin { to { transform: rotate(360deg); } }
 .zf-count-badge {
   position: absolute;
   top: 10px;

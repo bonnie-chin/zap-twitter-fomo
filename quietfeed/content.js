@@ -482,8 +482,11 @@
       if (!card.media || card.media.length !== 1 || card.media[0].type !== "video") return;
       const poster = scope.querySelector(".zf-videoposter");
       if (!poster) return; // already playable (GIF / direct / adopted)
+      poster.classList.add("zf-recalling"); // show a spinner while we fetch the player
       const v = await recall(card);
-      if (!v || !poster.isConnected) return;
+      if (!poster.isConnected) return;
+      poster.classList.remove("zf-recalling");
+      if (!v) return;
       v.dataset.zfAdopted = "1";
       dressVideo(v, mode);
       poster.replaceWith(v);
