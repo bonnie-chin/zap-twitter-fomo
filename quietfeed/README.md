@@ -2,7 +2,8 @@
 
 A Chrome extension that strips the social pressure out of X/Twitter so you can
 just look at good work and admire it. No like counts, no view counts, no
-usernames, no timestamps — no FOMO, no impostor syndrome. Just the craft.
+usernames, no timestamps, no ads, no Grok — no FOMO, no impostor syndrome. Just
+the craft. On by default the moment you land on the home timeline.
 
 > **Why an extension (and not a userscript / bookmarklet)?**
 > X is a single-page app that constantly re-renders and *virtualizes* its feed
@@ -23,6 +24,9 @@ Everything is toggleable from the popup (click the toolbar icon):
 | **Identity** | Hides avatars, display names, @handles, and timestamps. |
 | **Post text** | Optional — hide the words too, so you only see the visual work. |
 | **Side panels** | Hides the left nav and the right sidebar (trends, who-to-follow). |
+
+Always removed, regardless of any toggle: **ads** (promoted posts) and the
+**Grok** entry point (left-nav link and the floating bubble).
 
 The **messages FAB / drawer is always kept** and floats above everything, so you
 never lose your DMs. **Like**, **save (bookmark)**, and **repost** perform the

@@ -88,14 +88,51 @@
     root.classList.toggle("zf-mode-focus", on && cfg.layout === "focus");
 
     const wantOverlay = on && (cfg.layout === "pinterest" || cfg.layout === "focus");
-    if (wantOverlay) Overlay.enter();
-    else {
+    if (wantOverlay) {
+      Overlay.enter();
+      AdSweep.stop(); // extractCard already filters ads out of harvested cards
+    } else {
       Overlay.exit();
-      if (on && cfg.layout === "minimal") requestAnimationFrame(alignMinimal);
+      if (on) { AdSweep.start(); requestAnimationFrame(alignMinimal); }
+      else AdSweep.stop();
     }
 
     Dock.update(on);
   }
+
+  // ---------------------------------------------------------------------
+  // AdSweep — hides promoted posts in Minimal mode (Pinterest/Focus already
+  // filter them out at harvest time, since they never become cards there).
+  // ---------------------------------------------------------------------
+  const AdSweep = (() => {
+    let observer = null;
+    let active = false;
+
+    function sweepOnce() {
+      document.querySelectorAll('article[data-testid="tweet"]:not([data-zfadchecked])').forEach((art) => {
+        art.dataset.zfadchecked = "1";
+        if (isPromoted(art)) {
+          const cell = art.closest('[data-testid="cellInnerDiv"]') || art;
+          cell.classList.add("zf-ad-hidden");
+        }
+      });
+    }
+
+    function start() {
+      if (active) return;
+      active = true;
+      sweepOnce();
+      observer = new MutationObserver(sweepOnce);
+      observer.observe(document.body, { childList: true, subtree: true });
+    }
+
+    function stop() {
+      active = false;
+      if (observer) { observer.disconnect(); observer = null; }
+    }
+
+    return { start, stop };
+  })();
 
   // Scroll the native feed to the anchor post (used when entering Minimal).
   function alignMinimal() {
@@ -137,9 +174,26 @@
     return m ? m[1] : null;
   }
 
+  // Detect a promoted post (ad). There's no single stable testid for this
+  // across X's markup, so we layer a few checks; the "Ad" label match is
+  // scoped away from the tweet body so a post whose own text happens to say
+  // "Ad" can't be mistaken for one.
+  function isPromoted(article) {
+    if (article.querySelector('[data-testid="promotedIndicator"]')) return true;
+    const ctx = article.querySelector('[data-testid="socialContext"]');
+    if (ctx && /promoted/i.test(ctx.textContent)) return true;
+    const tweetText = article.querySelector('[data-testid="tweetText"]');
+    for (const el of article.querySelectorAll("a, span")) {
+      if (tweetText && tweetText.contains(el)) continue;
+      if (el.children.length === 0 && el.textContent.trim() === "Ad") return true;
+    }
+    return false;
+  }
+
   // Returns a card model, or null if there's nothing worth showing.
   // media: [{type:'image', src} | {type:'video', src|null, poster|null}]
   function extractCard(article) {
+    if (isPromoted(article)) return null; // no ads, in any view
     const id = statusId(article);
     if (!id) return null;
 

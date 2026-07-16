@@ -90,6 +90,25 @@
   display: none !important;
 }
 
+/* Remove every Grok entry point — the left-nav link AND the floating Grok
+   bubble next to the messages FAB — independent of the side-panels toggle,
+   since it's noise even when you keep the rails on. */
+.zf-enabled [aria-label="Grok" i],
+.zf-enabled [data-testid="GrokDrawerButton"],
+.zf-enabled [data-testid="ProfileDrawerGrokButton"],
+.zf-enabled a[href="/i/grok"],
+.zf-enabled a[href^="/i/grok"] {
+  display: none !important;
+}
+
+/* Promoted posts (ads). The "Ad" label itself can't be matched in pure CSS,
+   so content.js flags promoted articles with .zf-ad-hidden; this just hides
+   them (and reverts automatically when the master switch is off, since the
+   rule is scoped to .zf-enabled). */
+.zf-enabled .zf-ad-hidden {
+  display: none !important;
+}
+
 /* Center the feed in every mode (whether or not the rails are hidden).
    X lays the primary + sidebar columns out in a flex row and centers the
    pair; once the sidebar is gone the primary sits left-of-center, so we
