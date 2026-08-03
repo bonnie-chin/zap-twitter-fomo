@@ -29,6 +29,17 @@
   display: none !important;
 }
 
+/* With reply + counts gone, the remaining icons default to X's evenly-spread
+   layout (each child stretches via flex, spaced across the whole row). Pull
+   them together on the left with a fixed, comfortable gap instead. */
+.zf-enabled.zf-hide-metrics article [role="group"] {
+  justify-content: flex-start !important;
+  gap: 30px;
+}
+.zf-enabled.zf-hide-metrics article [role="group"] > div {
+  flex: none !important;
+}
+
 /* Follower / following counts on any profile header that leaks through. */
 .zf-enabled.zf-hide-metrics a[href$="/verified_followers"],
 .zf-enabled.zf-hide-metrics a[href$="/followers"],
@@ -40,10 +51,14 @@
 /* ------------------------------------------------------------------ *
  * 2. IDENTITY — who posted it and when
  * ------------------------------------------------------------------ */
+/* display:none (not visibility:hidden) — the avatar slot is a flex item sized
+   by its own flex-basis, which a mere width:0 override can't neutralize.
+   display:none removes its box entirely, so it stops reserving the gutter
+   and the left padding matches the right again. */
 .zf-enabled.zf-hide-identity [data-testid="Tweet-User-Avatar"],
 .zf-enabled.zf-hide-identity [data-testid="User-Avatar-Container-unknown"],
 .zf-enabled.zf-hide-identity div[data-testid^="UserAvatar-Container-"] {
-  visibility: hidden !important;
+  display: none !important;
 }
 
 /* Name + @handle + timestamp block. */
@@ -59,13 +74,6 @@
 /* Social-context line ("X reposted", "Y liked", "Promoted", "Following"). */
 .zf-enabled.zf-hide-identity article [data-testid="socialContext"] {
   visibility: hidden !important;
-}
-
-/* Collapse the empty gutter the hidden avatar leaves behind so text lines up. */
-.zf-enabled.zf-hide-identity article [data-testid="Tweet-User-Avatar"] {
-  width: 0 !important;
-  min-width: 0 !important;
-  margin: 0 !important;
 }
 
 /* ------------------------------------------------------------------ *
@@ -90,13 +98,13 @@
   display: none !important;
 }
 
-/* Remove every Grok entry point — the left-nav link AND the floating Grok
-   bubble next to the messages FAB — independent of the side-panels toggle,
-   since it's noise even when you keep the rails on. */
-.zf-enabled [aria-label="Grok" i],
-.zf-enabled [data-testid="GrokDrawerButton"],
-.zf-enabled [data-testid="ProfileDrawerGrokButton"],
-.zf-enabled a[href="/i/grok"],
+/* Remove every Grok entry point — the left-nav link, the floating Grok bubble
+   next to the messages FAB, AND the small per-tweet "ask Grok" icon next to
+   the "···" menu — independent of the side-panels toggle, since it's noise
+   even when you keep the rails on. Substring + testid-prefix matches since
+   the accessible label/testid varies by surface ("Grok", "Grok actions", …). */
+.zf-enabled [aria-label*="Grok" i],
+.zf-enabled [data-testid*="Grok" i],
 .zf-enabled a[href^="/i/grok"] {
   display: none !important;
 }
@@ -136,6 +144,180 @@
 .zf-enabled div[data-testid="DMDrawerHeader"] {
   z-index: 2147483647 !important;
 }
+
+/* ------------------------------------------------------------------ *
+ * 4b. ACTION-STYLE EXPLORATIONS (Minimal mode only) — Snug / Bold / Rail
+ *     content.js toggles .zf-action-{classic,bold,rail} on <html>.
+ *     Repost, Like, and Bookmark are the "4 buttons" (Share is the 4th,
+ *     untouched since X doesn't tag it with a stable testid).
+ * ------------------------------------------------------------------ */
+
+/* Shared list of the icon-bearing elements every variant restyles. */
+.zf-enabled.zf-hide-metrics.zf-action-bold article [data-testid="retweet"],
+.zf-enabled.zf-hide-metrics.zf-action-bold article [data-testid="unretweet"],
+.zf-enabled.zf-hide-metrics.zf-action-bold article [data-testid="like"],
+.zf-enabled.zf-hide-metrics.zf-action-bold article [data-testid="unlike"],
+.zf-enabled.zf-hide-metrics.zf-action-bold article [data-testid="bookmark"],
+.zf-enabled.zf-hide-metrics.zf-action-bold article [data-testid="removeBookmark"] {
+  width: 42px !important;
+  height: 42px !important;
+  border-radius: 50% !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: transform 0.15s ease, background-color 0.15s ease !important;
+}
+.zf-enabled.zf-hide-metrics.zf-action-bold article [data-testid="retweet"] svg,
+.zf-enabled.zf-hide-metrics.zf-action-bold article [data-testid="unretweet"] svg,
+.zf-enabled.zf-hide-metrics.zf-action-bold article [data-testid="like"] svg,
+.zf-enabled.zf-hide-metrics.zf-action-bold article [data-testid="unlike"] svg,
+.zf-enabled.zf-hide-metrics.zf-action-bold article [data-testid="bookmark"] svg,
+.zf-enabled.zf-hide-metrics.zf-action-bold article [data-testid="removeBookmark"] svg {
+  width: 24px !important;
+  height: 24px !important;
+}
+.zf-enabled.zf-hide-metrics.zf-action-bold article [role="group"] {
+  gap: 18px;
+  padding: 4px 0;
+}
+/* Bold: tinted circle chip per action, deepens + lifts on hover. */
+.zf-enabled.zf-hide-metrics.zf-action-bold article [data-testid="retweet"],
+.zf-enabled.zf-hide-metrics.zf-action-bold article [data-testid="unretweet"] {
+  background: rgba(0, 186, 124, 0.12) !important;
+  color: #00ba7c !important;
+}
+.zf-enabled.zf-hide-metrics.zf-action-bold article [data-testid="like"],
+.zf-enabled.zf-hide-metrics.zf-action-bold article [data-testid="unlike"] {
+  background: rgba(249, 24, 128, 0.1) !important;
+  color: #f91880 !important;
+}
+.zf-enabled.zf-hide-metrics.zf-action-bold article [data-testid="bookmark"],
+.zf-enabled.zf-hide-metrics.zf-action-bold article [data-testid="removeBookmark"] {
+  background: rgba(29, 155, 240, 0.1) !important;
+  color: #1d9bf0 !important;
+}
+.zf-enabled.zf-hide-metrics.zf-action-bold article [data-testid="retweet"]:hover,
+.zf-enabled.zf-hide-metrics.zf-action-bold article [data-testid="unretweet"]:hover,
+.zf-enabled.zf-hide-metrics.zf-action-bold article [data-testid="like"]:hover,
+.zf-enabled.zf-hide-metrics.zf-action-bold article [data-testid="unlike"]:hover,
+.zf-enabled.zf-hide-metrics.zf-action-bold article [data-testid="bookmark"]:hover,
+.zf-enabled.zf-hide-metrics.zf-action-bold article [data-testid="removeBookmark"]:hover {
+  transform: scale(1.14) !important;
+}
+
+/* Rail: detach the action row into a floating vertical rail beside the tweet,
+   big circular buttons — an immersive, Reels-style side dock. Experimental:
+   needs clear space to the article's right, so it fits best with side panels
+   hidden (the default); on a narrow viewport or with panels on it may clip. */
+.zf-enabled.zf-hide-metrics.zf-action-rail article {
+  position: relative !important;
+  overflow: visible !important;
+}
+.zf-enabled.zf-hide-metrics.zf-action-rail article [role="group"] {
+  position: absolute !important;
+  top: 50% !important;
+  right: -58px !important;
+  transform: translateY(-50%) !important;
+  flex-direction: column !important;
+  width: auto !important;
+  gap: 12px !important;
+  z-index: 2 !important;
+}
+.zf-enabled.zf-hide-metrics.zf-action-rail article [data-testid="retweet"],
+.zf-enabled.zf-hide-metrics.zf-action-rail article [data-testid="unretweet"],
+.zf-enabled.zf-hide-metrics.zf-action-rail article [data-testid="like"],
+.zf-enabled.zf-hide-metrics.zf-action-rail article [data-testid="unlike"],
+.zf-enabled.zf-hide-metrics.zf-action-rail article [data-testid="bookmark"],
+.zf-enabled.zf-hide-metrics.zf-action-rail article [data-testid="removeBookmark"] {
+  width: 46px !important;
+  height: 46px !important;
+  border-radius: 50% !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background: #16161a !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35) !important;
+  color: #e7e7ea !important;
+  transition: transform 0.15s ease, background-color 0.15s ease !important;
+}
+.zf-enabled.zf-hide-metrics.zf-action-rail article [data-testid="retweet"] svg,
+.zf-enabled.zf-hide-metrics.zf-action-rail article [data-testid="unretweet"] svg,
+.zf-enabled.zf-hide-metrics.zf-action-rail article [data-testid="like"] svg,
+.zf-enabled.zf-hide-metrics.zf-action-rail article [data-testid="unlike"] svg,
+.zf-enabled.zf-hide-metrics.zf-action-rail article [data-testid="bookmark"] svg,
+.zf-enabled.zf-hide-metrics.zf-action-rail article [data-testid="removeBookmark"] svg {
+  width: 22px !important;
+  height: 22px !important;
+}
+.zf-enabled.zf-hide-metrics.zf-action-rail article [data-testid="like"],
+.zf-enabled.zf-hide-metrics.zf-action-rail article [data-testid="unlike"] {
+  color: #f91880 !important;
+}
+.zf-enabled.zf-hide-metrics.zf-action-rail article [data-testid="retweet"],
+.zf-enabled.zf-hide-metrics.zf-action-rail article [data-testid="unretweet"] {
+  color: #00ba7c !important;
+}
+.zf-enabled.zf-hide-metrics.zf-action-rail article [data-testid="retweet"]:hover,
+.zf-enabled.zf-hide-metrics.zf-action-rail article [data-testid="unretweet"]:hover,
+.zf-enabled.zf-hide-metrics.zf-action-rail article [data-testid="like"]:hover,
+.zf-enabled.zf-hide-metrics.zf-action-rail article [data-testid="unlike"]:hover,
+.zf-enabled.zf-hide-metrics.zf-action-rail article [data-testid="bookmark"]:hover,
+.zf-enabled.zf-hide-metrics.zf-action-rail article [data-testid="removeBookmark"]:hover {
+  transform: translateY(-2px) scale(1.06) !important;
+  background: #202024 !important;
+}
+
+/* ------------------------------------------------------------------ *
+ * Floating "Action style" menu (top-left) — lets you try Snug/Bold/Rail
+ * live, side by side, only shown in Minimal mode.
+ * ------------------------------------------------------------------ */
+#zf-action-menu {
+  position: fixed;
+  top: 14px;
+  left: 16px;
+  z-index: 2147483200;
+  display: none;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  background: rgba(22, 22, 25, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  color: #cfcfd4;
+}
+#zf-action-menu .zf-am-label {
+  font-size: 12px;
+  opacity: 0.65;
+  padding: 0 2px 0 4px;
+  white-space: nowrap;
+}
+#zf-action-menu .zf-am-btn {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: transparent;
+  color: #c7c7cd;
+  padding: 6px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.25;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+#zf-action-menu .zf-am-btn:hover { background: rgba(255, 255, 255, 0.08); }
+#zf-action-menu .zf-am-btn.zf-on {
+  background: #e7e7ea;
+  border-color: #e7e7ea;
+  color: #0b0b0d;
+}
+#zf-action-menu .zf-am-title { font-size: 12.5px; font-weight: 600; }
+#zf-action-menu .zf-am-hint { font-size: 10.5px; opacity: 0.7; }
+#zf-action-menu .zf-am-btn.zf-on .zf-am-hint { opacity: 0.55; }
 
 /* ------------------------------------------------------------------ *
  * 5. OVERLAY MODES (pinterest / focus)

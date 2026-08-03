@@ -25,8 +25,22 @@ Everything is toggleable from the popup (click the toolbar icon):
 | **Post text** | Optional — hide the words too, so you only see the visual work. |
 | **Side panels** | Hides the left nav and the right sidebar (trends, who-to-follow). |
 
-Always removed, regardless of any toggle: **ads** (promoted posts) and the
-**Grok** entry point (left-nav link and the floating bubble).
+Always removed, regardless of any toggle: **ads** (promoted posts) and every
+**Grok** entry point (left-nav link, the floating bubble, and the small
+per-tweet "ask Grok" icon).
+
+## Action-style explorations (Minimal mode)
+
+A small floating menu, top-left, lets you try three treatments of the kept
+like/repost/bookmark buttons live:
+- **Snug** — the bug-fixed default: pulled together on the left with a
+  comfortable fixed gap (instead of X's evenly-spread layout, which looked
+  broken once reply and the counts were removed).
+- **Bold** — big tinted circular chips, colored per action, with a little
+  scale-up on hover.
+- **Rail** — an experimental floating vertical rail beside the tweet, Reels-style.
+  It needs clear space to the right of the article, so it fits best with side
+  panels hidden (the default); on a narrow window or with panels on it may clip.
 
 The **messages FAB / drawer is always kept** and floats above everything, so you
 never lose your DMs. **Like**, **save (bookmark)**, and **repost** perform the

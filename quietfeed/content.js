@@ -15,6 +15,7 @@
     hideText: false,
     hideChrome: true,
     layout: "minimal", // "minimal" | "pinterest" | "focus"
+    actionStyle: "classic", // "classic" | "bold" | "rail" — Minimal-mode action bar look
   };
 
   let cfg = { ...DEFAULTS };
@@ -87,6 +88,10 @@
     root.classList.toggle("zf-mode-pinterest", on && cfg.layout === "pinterest");
     root.classList.toggle("zf-mode-focus", on && cfg.layout === "focus");
 
+    root.classList.toggle("zf-action-classic", on && cfg.actionStyle === "classic");
+    root.classList.toggle("zf-action-bold", on && cfg.actionStyle === "bold");
+    root.classList.toggle("zf-action-rail", on && cfg.actionStyle === "rail");
+
     const wantOverlay = on && (cfg.layout === "pinterest" || cfg.layout === "focus");
     if (wantOverlay) {
       Overlay.enter();
@@ -98,6 +103,7 @@
     }
 
     Dock.update(on);
+    ActionMenu.update(on && cfg.layout === "minimal");
   }
 
   // ---------------------------------------------------------------------
@@ -1106,6 +1112,59 @@
     }
 
     return { update, setLoading };
+  })();
+
+  // ---------------------------------------------------------------------
+  // Action-style menu — floating, top-left, so you can try the Minimal-mode
+  // action bar treatments (Snug / Bold / Rail) side by side without opening
+  // the popup. Only shown in Minimal mode, since Pinterest/Focus already
+  // have their own bespoke Save/Like/Repost buttons.
+  // ---------------------------------------------------------------------
+  const ActionMenu = (() => {
+    let menu = null;
+    let buttons = [];
+
+    const STYLES = [
+      { key: "classic", label: "Snug", hint: "Bigger, left-aligned" },
+      { key: "bold", label: "Bold", hint: "Big tinted chips" },
+      { key: "rail", label: "Rail", hint: "Floating side rail" },
+    ];
+
+    function build() {
+      menu = document.createElement("div");
+      menu.id = "zf-action-menu";
+
+      const label = document.createElement("span");
+      label.className = "zf-am-label";
+      label.textContent = "Action style";
+      menu.appendChild(label);
+
+      buttons = STYLES.map(({ key, label: text, hint }) => {
+        const b = document.createElement("button");
+        b.className = "zf-am-btn";
+        b.title = hint;
+        b.innerHTML = `<span class="zf-am-title">${text}</span><span class="zf-am-hint">${hint}</span>`;
+        b.addEventListener("click", () => setCfg({ actionStyle: key }));
+        b.dataset.key = key;
+        menu.appendChild(b);
+        return b;
+      });
+
+      document.body.appendChild(menu);
+    }
+
+    function ensure() {
+      if (!menu && document.body) build();
+    }
+
+    function update(on) {
+      ensure();
+      if (!menu) return;
+      menu.style.display = on ? "flex" : "none";
+      buttons.forEach((b) => b.classList.toggle("zf-on", b.dataset.key === cfg.actionStyle));
+    }
+
+    return { update };
   })();
 
   // ---------------------------------------------------------------------
