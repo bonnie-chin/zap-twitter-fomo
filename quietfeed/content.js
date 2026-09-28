@@ -104,6 +104,7 @@
 
     Dock.update(on);
     ActionMenu.update(on && cfg.layout === "minimal");
+    BouncerPill.sync();
   }
 
   // ---------------------------------------------------------------------
@@ -194,6 +195,20 @@
       if (el.children.length === 0 && el.textContent.trim() === "Ad") return true;
     }
     return false;
+  }
+
+  // Bouncer (Imbue's AI feed filter) hides the cells it filters by tagging them
+  // data-filtered-by-extension="true" + an inline display:none, and dims posts
+  // it's still classifying with data-ff-pending. Minimal mode gets that for
+  // free (it's the live page), but the overlay harvests from the DOM directly,
+  // so it has to respect both or it would resurrect bounced posts as cards.
+  // Returns "bounced" | "pending" | null.
+  function bouncerVerdict(article) {
+    const cell = article.closest('[data-testid="cellInnerDiv"]') || article;
+    if (cell.dataset.filteredByExtension === "true" || article.dataset.filteredByExtension === "true") {
+      return "bounced";
+    }
+    return article.hasAttribute("data-ff-pending") ? "pending" : null;
   }
 
   // Returns a card model, or null if there's nothing worth showing.
@@ -318,6 +333,10 @@
 
     const byId = new Map(); // id -> card model
     const cards = []; // ordered card models
+    // Ids Bouncer has filtered. Sticky for the page's life: X re-renders a
+    // recycled cell without Bouncer's mark until Bouncer re-tags it, and we
+    // don't want the card to flicker back in that gap.
+    const bounced = new Set();
     let focusList = []; // currently-visible cards, in order (Focus navigation)
     let focusIndex = 0;
     let focusCountEl = null;
@@ -341,12 +360,35 @@
     // These are visual modes: only posts with media (image/video) become cards.
     // The Text toggle then shows/hides the caption on those cards.
     function isVisible(card) {
-      return card.media.length > 0;
+      return card.media.length > 0 && !bounced.has(card.id);
     }
     const visibleCards = () => cards.filter(isVisible);
 
+    // Bouncer filtered a post (possibly after we'd already carded it): pull it
+    // from the wall, keeping Focus on the same post unless it's the one removed.
+    function dropBounced(id) {
+      if (!id || bounced.has(id)) return;
+      const cur = focusList[focusIndex];
+      bounced.add(id);
+      const card = byId.get(id);
+      if (!card) return;
+      if (card._node && card._node.isConnected) card._node.remove();
+      if (cfg.layout !== "focus") return;
+      if (cur && cur.id !== id) {
+        focusIndex = Math.max(0, visibleCards().indexOf(cur));
+        syncFocusCount();
+      } else {
+        renderFocus(); // same index now points at the next post
+      }
+    }
+
     // ---- harvest ----
     function ingest(article) {
+      const verdict = bouncerVerdict(article);
+      if (verdict === "pending") return; // wait for Bouncer (re-scanned when the mark changes)
+      if (verdict === "bounced") { dropBounced(statusId(article)); return; }
+      if (bounced.has(statusId(article))) return;
+
       const data = extractCard(article);
       if (!data) return;
 
@@ -1012,7 +1054,13 @@
       );
 
       observer = new MutationObserver(() => scanAll());
-      observer.observe(document.body, { childList: true, subtree: true });
+      // Also watch Bouncer's marks so a verdict lands as soon as it's made.
+      observer.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ["data-ff-pending", "data-filtered-by-extension"],
+      });
 
       io = new IntersectionObserver(
         (entries) => entries.forEach((en) => en.isIntersecting && prefetch()),
@@ -1168,6 +1216,38 @@
   })();
 
   // ---------------------------------------------------------------------
+  // Bouncer's bottom pill — shown in place of its sidebar box whenever we hide
+  // the sidebar (see quietfeed.css). Publish its live height as --zf-bouncer-h
+  // so the Focus nav and the overlay's bottom padding sit clear of it. Bouncer
+  // injects (and may re-inject) it on its own schedule, so re-find it on a poll.
+  // ---------------------------------------------------------------------
+  const BouncerPill = (() => {
+    let pill = null;
+    let ro = null;
+    let lastH = -1;
+
+    function measure() {
+      const h = pill && pill.isConnected && pill.getClientRects().length ? pill.offsetHeight : 0;
+      if (h === lastH) return;
+      lastH = h;
+      root.style.setProperty("--zf-bouncer-h", h + "px");
+    }
+
+    function sync() {
+      const p = document.querySelector(".filter-phrases-bottom");
+      if (p !== pill) {
+        if (ro) ro.disconnect();
+        pill = p;
+        ro = pill ? new ResizeObserver(measure) : null; // also fires on expand/collapse
+        if (ro) ro.observe(pill);
+      }
+      measure();
+    }
+
+    return { sync };
+  })();
+
+  // ---------------------------------------------------------------------
   // Boot
   // ---------------------------------------------------------------------
   load().then(apply);
@@ -1192,6 +1272,7 @@
     };
   });
   window.addEventListener("popstate", onRoute);
-  // Safety net in case a navigation slips through the history hooks.
-  setInterval(onRoute, 1000);
+  // Safety net in case a navigation slips through the history hooks; also picks
+  // up Bouncer's pill once it's injected.
+  setInterval(() => { onRoute(); BouncerPill.sync(); }, 1000);
 })();

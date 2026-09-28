@@ -111,6 +111,22 @@ into a clean overlay: Quietfeed reads the images/text out of each tweet as it
 scrolls into view and repaints them itself, while the (hidden) native feed keeps
 loading more in the background.
 
+## Works with Bouncer
+
+[Bouncer](https://github.com/imbue-ai/bouncer) (Imbue's AI feed filter) and
+Quietfeed stack:
+- **Filter box kept.** On wide windows Bouncer lives in the right sidebar, which
+  "Side panels" hides. When the sidebar is hidden (or covered by
+  Pinterest/Focus), Quietfeed shows Bouncer's own bottom-pinned filter pill
+  instead: the same box Bouncer uses on medium-width windows. It tracks the
+  centered feed, collapses with its chevron, and Focus's bottom bar sits above
+  it. Turn "Side panels" back on and Bouncer returns to the sidebar.
+- **Filtered posts stay filtered in Pinterest/Focus.** Those views build cards
+  from X's hidden feed, so they honor Bouncer's verdicts: posts it's still
+  checking wait, and posts it bounces never become cards (or are pulled from
+  the wall if the verdict lands after the card was made). Minimal is the live
+  page, so Bouncer handles it directly.
+
 ## Install (unpacked, ~30 seconds)
 
 1. Open `chrome://extensions`.

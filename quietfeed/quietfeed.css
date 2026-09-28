@@ -138,6 +138,41 @@
   max-width: 100% !important;
 }
 
+/* ------------------------------------------------------------------ *
+ * Bouncer (Imbue's AI feed filter) — keep its filter box.
+ * On wide windows Bouncer mounts its box inside the right sidebar, which
+ * .zf-hide-chrome removes. But Bouncer always injects a second copy — a pill
+ * pinned to the bottom of the viewport that tracks the primary column — and
+ * only shows it on medium widths (its own @media rules, !important). Whenever
+ * the sidebar is gone (chrome hidden) or covered (overlay modes), show that
+ * pill instead at every width. Its mobile variant lives next to the left nav,
+ * which is hidden too, so suppress it to avoid a duplicate.
+ * ------------------------------------------------------------------ */
+.zf-enabled.zf-hide-chrome .filter-phrases-bottom,
+.zf-enabled.zf-overlay-active .filter-phrases-bottom {
+  display: block !important;
+}
+.zf-enabled.zf-hide-chrome .filter-phrases-mobile,
+.zf-enabled.zf-overlay-active .filter-phrases-mobile {
+  display: none !important;
+}
+/* Above the Pinterest/Focus overlay, below the dock. */
+.zf-enabled.zf-overlay-active .filter-phrases-bottom {
+  z-index: 2147483100 !important;
+}
+/* Bouncer's popups / modals (filtered-posts list, settings, "why was this
+   filtered", toasts, onboarding) — above the overlay, the dock and our own
+   lightbox, still below the messages FAB. */
+.zf-enabled .filtered-modal-backdrop,
+.zf-enabled .settings-modal-overlay,
+.zf-enabled .post-filter-reasoning-popup,
+.zf-enabled .post-filter-toast-container,
+.zf-enabled .ff-annoying-tooltip,
+.zf-enabled .bouncer-guest-popup-backdrop,
+.zf-enabled .bouncer-onboarding-backdrop {
+  z-index: 2147483600 !important;
+}
+
 /* Always keep the messages dock / FAB visible and clickable, above overlays. */
 .zf-enabled [data-testid="DMDrawer"],
 .zf-enabled [aria-label="Messages"][role="button"],
@@ -423,7 +458,8 @@
   display: flex;
   align-items: flex-start;
   gap: 16px;
-  padding: 70px 22px 48px; /* top padding clears the floating dock */
+  /* top padding clears the floating dock; bottom clears Bouncer's pill */
+  padding: 70px 22px calc(48px + var(--zf-bouncer-h, 0px));
   max-width: 1180px; /* reasonable cap so cards don't sprawl on ultrawide */
   margin: 0 auto;
 }
@@ -580,7 +616,8 @@
   align-items: center;
   justify-content: center;
   min-height: 100vh;
-  padding: 72px 20px 90px; /* top clears the dock, bottom clears the nav */
+  /* top clears the dock, bottom clears the nav (+ Bouncer's pill) */
+  padding: 72px 20px calc(90px + var(--zf-bouncer-h, 0px));
 }
 .zf-focus-card {
   max-width: min(760px, 92vw);
@@ -640,7 +677,7 @@
 .zf-big-btn svg { width: 20px; height: 20px; fill: currentColor; }
 .zf-focus-nav {
   position: fixed;
-  bottom: 28px;
+  bottom: calc(28px + var(--zf-bouncer-h, 0px)); /* sit above Bouncer's pill */
   left: 50%;
   transform: translateX(-50%);
   display: flex;
